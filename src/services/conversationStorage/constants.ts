@@ -1,0 +1,11 @@
+export const STORAGE_INDEX_KEY = 'm1:conversation-index'
+export const STORAGE_ACTIVE_KEY = 'm1:active-conversation-id'
+export const EMPTY_ACTIVE_CONVERSATION_SENTINEL = '__EMPTY_ACTIVE_CONVERSATION__'
+export const STORAGE_CONTENT_PREFIX = 'm1:conversation:'
+export const STORAGE_CHANNELS_KEY = 'm3:channels'
+export const STORAGE_STAGED_SETTINGS_KEY = 'm3:staged-settings'
+export const MAX_CONVERSATION_PAYLOAD_CHARS = 2_600_000
+export const KEEP_FULL_IMAGE_RECENT_MESSAGE_COUNT = 20
+export const INDEXED_DB_NAME = 'm3-conversations-db'
+export const INDEXED_DB_VERSION = 1
+export const INDEXED_DB_STORE = 'conversation-content'

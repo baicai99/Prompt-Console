@@ -1,0 +1,174 @@
+import { beforeEach, describe, expect, it } from 'vitest'
+import { createConversationRepository } from '../conversationRepository'
+import type { Conversation } from '../../../../types/conversation'
+import type { PanelVariableRow } from '../../domain/types'
+import { DEFAULT_IMAGE_RUNTIME_SETTINGS } from '../../../../utils/imageRuntimeSettings'
+
+describe('conversationRepository', () => {
+  beforeEach(async () => {
+    localStorage.clear()
+    if (typeof indexedDB !== 'undefined') {
+      await new Promise<void>((resolve) => {
+        const request = indexedDB.deleteDatabase('m3-conversations-db')
+        request.onsuccess = () => resolve()
+        request.onerror = () => resolve()
+        request.onblocked = () => resolve()
+      })
+    }
+  })
+
+  it('persists and loads conversations/channels/index', async () => {
+    const repo = createConversationRepository()
+    const conversation: Conversation = {
+      id: 'c1',
+      title: 'conversation 1',
+      titleMode: 'manual',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      sideMode: 'single',
+      sideCount: 2,
+      settingsBySide: {
+        single: {
+          resolution: '1K',
+          aspectRatio: '1:1',
+          imageCount: 1,
+          gridColumns: 1,
+          sizeMode: 'preset',
+          customWidth: 1024,
+          customHeight: 1024,
+          autoSave: true,
+          channelId: null,
+          modelId: 'model-a',
+          paramValues: {},
+        },
+      },
+      messages: [],
+    }
+
+    await repo.saveConversation(conversation)
+    repo.saveIndex([
+      {
+        id: 'c1',
+        title: 'conversation 1',
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        lastMessagePreview: 'empty',
+      },
+    ])
+    repo.saveActiveId('c1')
+    repo.saveChannels([{ id: 'ch1', name: 'main', baseUrl: 'https://example.com', apiKey: 'k', models: ['model-a'] }])
+
+    const loaded = repo.load()
+    const loadedConversation = await repo.loadConversation('c1')
+    const channels = repo.loadChannels()
+
+    expect(loaded.activeId).toBe('c1')
+    expect(loadedConversation?.title).toBe('conversation 1')
+    expect(loadedConversation?.titleMode).toBe('manual')
+    expect(channels[0].id).toBe('ch1')
+  })
+
+  it('uses fallback title instead of re-summarizing first user prompt on load', async () => {
+    const repo = createConversationRepository()
+    const conversation: Conversation = {
+      id: 'legacy-c1',
+      title: '',
+      titleMode: 'default',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      sideMode: 'single',
+      sideCount: 2,
+      settingsBySide: {
+        single: {
+          resolution: '1K',
+          aspectRatio: '1:1',
+          imageCount: 1,
+          gridColumns: 1,
+          sizeMode: 'preset',
+          customWidth: 1024,
+          customHeight: 1024,
+          autoSave: true,
+          channelId: null,
+          modelId: 'model-a',
+          paramValues: {},
+        },
+      },
+      messages: [
+        {
+          id: 'm1',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          role: 'user',
+          content: '@gpt-image-1 draw a cat --wh 640x960',
+        },
+      ],
+    }
+
+    await repo.saveConversation(conversation)
+
+    const loadedConversation = await repo.loadConversation('legacy-c1', '未命名')
+
+    expect(loadedConversation?.title).toBe('未命名')
+    expect(loadedConversation?.titleMode).toBe('default')
+  })
+
+  it('keeps empty active conversation when active id is null', () => {
+    const repo = createConversationRepository()
+
+    repo.saveIndex([
+      {
+        id: 'c1',
+        title: 'conversation 1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        lastMessagePreview: 'has history',
+      },
+    ])
+    repo.saveActiveId(null)
+
+    const loaded = repo.load()
+    expect(loaded.activeId).toBeNull()
+    expect(loaded.summaries).toHaveLength(1)
+  })
+
+  it('persists staged panel variables', () => {
+    const repo = createConversationRepository()
+    const panelVariables: PanelVariableRow[] = [
+      { id: 'v1', key: 'style_names', valuesText: '["a","b"]', selectedValue: 'a' },
+    ]
+
+    repo.saveStagedSettings({
+      sideMode: 'single',
+      sideCount: 2,
+      settingsBySide: {
+        single: {
+          resolution: '1K',
+          aspectRatio: '1:1',
+          imageCount: 1,
+          gridColumns: 1,
+          sizeMode: 'preset',
+          customWidth: 1024,
+          customHeight: 1024,
+          autoSave: true,
+          channelId: null,
+          modelId: 'model-a',
+          paramValues: {},
+        },
+      },
+      runConcurrency: 4,
+      runConcurrencyUnlimited: true,
+      dynamicPromptEnabled: true,
+      autoRenameConversationTitle: true,
+      autoRenameConversationTitleModelId: 'model-a',
+      panelValueFormat: 'json',
+      panelVariables,
+      favoriteModelIds: [],
+      imageRuntimeSettings: DEFAULT_IMAGE_RUNTIME_SETTINGS,
+    })
+
+    const staged = repo.loadStagedSettings()
+    expect(staged?.panelVariables).toEqual(panelVariables)
+    expect(staged?.autoRenameConversationTitle).toBe(true)
+    expect(staged?.autoRenameConversationTitleModelId).toBe('model-a')
+    expect(staged?.runConcurrencyUnlimited).toBe(true)
+  })
+})

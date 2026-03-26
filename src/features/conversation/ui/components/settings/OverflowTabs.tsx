@@ -1,0 +1,1 @@
+export { OverflowTabs } from '../OverflowTabs'

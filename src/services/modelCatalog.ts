@@ -1,0 +1,111 @@
+import type { ApiChannel } from '../types/channel'
+import type { SettingPrimitive } from '../types/conversation'
+import type { ModelCatalog, ModelSpec } from '../types/model'
+import { resolveChannelProviderAdapter, resolveChannelProviderId } from './providers/providerSelection'
+import { buildScopedModelId } from '../utils/modelIdentity'
+
+const EMPTY_CATALOG: ModelCatalog = { models: [] }
+
+function isModelSurfaceParam(param: {
+  surface?: 'model' | 'shared-settings'
+}): boolean {
+  return param.surface !== 'shared-settings'
+}
+
+export function getModelById(catalog: ModelCatalog, modelId: string): ModelSpec | undefined {
+  return catalog.models.find((item) => item.id === modelId)
+}
+
+export function getDefaultModel(catalog: ModelCatalog): ModelSpec | undefined {
+  return catalog.models[0]
+}
+
+export function getDefaultParamValues(model?: ModelSpec): Record<string, SettingPrimitive> {
+  if (!model) {
+    return {}
+  }
+
+  const values: Record<string, SettingPrimitive> = {}
+  for (const param of model.params) {
+    values[param.key] = param.default
+  }
+  return values
+}
+
+export function normalizeParamValues(
+  model: ModelSpec | undefined,
+  values: Record<string, SettingPrimitive>,
+): Record<string, SettingPrimitive> {
+  if (!model) {
+    return {}
+  }
+
+  const next: Record<string, SettingPrimitive> = {}
+
+  for (const param of model.params) {
+    const value = values[param.key]
+
+    if (param.type === 'number') {
+      const defaultValue = typeof param.default === 'number' ? param.default : 0
+      const rawNumber = typeof value === 'number' ? value : defaultValue
+      const min = typeof param.min === 'number' ? param.min : Number.NEGATIVE_INFINITY
+      const max = typeof param.max === 'number' ? param.max : Number.POSITIVE_INFINITY
+      next[param.key] = Math.min(Math.max(rawNumber, min), max)
+      continue
+    }
+
+    if (param.type === 'boolean') {
+      next[param.key] = typeof value === 'boolean' ? value : Boolean(param.default)
+      continue
+    }
+
+    const options = param.options ?? []
+    if (typeof value === 'string' && (options.length === 0 || options.includes(value))) {
+      next[param.key] = value
+    } else if (typeof param.default === 'string') {
+      next[param.key] = param.default
+    }
+  }
+
+  return next
+}
+
+export function getModelCatalogFromChannels(channels: ApiChannel[]): ModelCatalog {
+  const merged = new Map<string, ModelSpec>()
+
+  for (const channel of channels) {
+    const adapter = resolveChannelProviderAdapter(channel)
+    const modelIds = Array.isArray(channel.models) ? channel.models : []
+    const providerId = resolveChannelProviderId(channel)
+    for (const modelId of modelIds) {
+      if (!modelId) {
+        continue
+      }
+
+      const scopedModelId = buildScopedModelId(channel.id, modelId)
+      const sourceName = channel.name.trim() || channel.baseUrl.trim() || providerId
+
+      merged.set(scopedModelId, {
+        id: scopedModelId,
+        name: `${modelId}（${sourceName}）`,
+        rawId: modelId,
+        channelId: channel.id,
+        sourceName,
+        tags: Array.from(new Set([providerId, adapter.capabilities.modelTag, sourceName])),
+        params: adapter.capabilities.defaultImageParamSchema
+          .filter(isModelSurfaceParam)
+          .map((param) => ({
+            key: param.key,
+            label: param.label,
+            type: param.type,
+            default: param.default,
+            min: param.min,
+            max: param.max,
+            options: param.options,
+          })),
+      } satisfies ModelSpec)
+    }
+  }
+
+  return merged.size > 0 ? { models: Array.from(merged.values()) } : EMPTY_CATALOG
+}

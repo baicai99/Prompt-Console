@@ -1,0 +1,555 @@
+import { createRef, useState } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
+import type { ComponentProps, MutableRefObject } from 'react'
+import type { DragOrigin } from '../../../../hooks/useImagePreview'
+import { ImagePreviewModal } from './ImagePreviewModal'
+
+const resizeTargets: Array<{
+  callback: ResizeObserverCallback
+  target: Element
+  owner: object
+}> = []
+
+beforeAll(() => {
+  if (!Element.prototype.setPointerCapture) {
+    Element.prototype.setPointerCapture = () => {}
+  }
+  if (!Element.prototype.releasePointerCapture) {
+    Element.prototype.releasePointerCapture = () => {}
+  }
+  const nativeGetComputedStyle = window.getComputedStyle
+  window.getComputedStyle = ((elt: Element) => nativeGetComputedStyle(elt)) as typeof window.getComputedStyle
+
+  class ResizeObserverMock {
+    private readonly callback: ResizeObserverCallback
+
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback
+    }
+
+    observe(target: Element) {
+      resizeTargets.push({ callback: this.callback, target, owner: this })
+    }
+
+    unobserve(target: Element) {
+      const next = resizeTargets.filter((item) => !(item.owner === this && item.target === target))
+      resizeTargets.splice(0, resizeTargets.length, ...next)
+    }
+
+    disconnect() {
+      const next = resizeTargets.filter((item) => item.owner !== this)
+      resizeTargets.splice(0, resizeTargets.length, ...next)
+    }
+  }
+
+  ;(window as unknown as { ResizeObserver: typeof ResizeObserver }).ResizeObserver =
+    ResizeObserverMock as unknown as typeof ResizeObserver
+})
+
+beforeEach(() => {
+  resizeTargets.length = 0
+})
+
+function triggerResize(target: Element) {
+  act(() => {
+    for (const item of resizeTargets) {
+      if (item.target !== target) {
+        continue
+      }
+      item.callback(
+        [
+          {
+            target,
+            contentRect: target.getBoundingClientRect(),
+          } as ResizeObserverEntry,
+        ],
+        {} as ResizeObserver,
+      )
+    }
+  })
+}
+
+function buildProps(overrides?: Partial<ComponentProps<typeof ImagePreviewModal>>) {
+  return {
+    isPreviewOpen: true,
+    previewMode: 'single' as const,
+    closePreview: vi.fn(),
+    goPrevPreview: vi.fn(),
+    goNextPreview: vi.fn(),
+    goFirstPreview: vi.fn(),
+    goLastPreview: vi.fn(),
+    goToPreview: vi.fn(),
+    previewImages: [{ id: '1', seq: 1, src: '/1.png' }],
+    previewPairs: [],
+    currentPreviewImage: { id: '1', seq: 1, src: '/1.png' },
+    currentPreviewPair: undefined,
+    interactionMode: 'actual' as const,
+    compareMode: 'split' as const,
+    isSyncLocked: true,
+    showInfoPanel: false,
+    pixelMode: 'actual' as const,
+    activePane: 'left' as const,
+    zoom: 2,
+    offset: { x: 0, y: 0 },
+    transform: { zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' as const },
+    sharedTransform: { zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' as const },
+    leftTransform: { zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' as const },
+    rightTransform: { zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' as const },
+    isDragging: false,
+    dragOriginRef: createRef<DragOrigin | null>() as MutableRefObject<DragOrigin | null>,
+    setIsDragging: vi.fn(),
+    zoomBy: vi.fn(),
+    zoomTo: vi.fn(),
+    panBy: vi.fn(),
+    panTo: vi.fn(),
+    toggleFitMode: vi.fn(),
+    setActualPixelMode: vi.fn(),
+    setCompareMode: vi.fn(),
+    setIsSyncLocked: vi.fn(),
+    toggleInfoPanel: vi.fn(),
+    setActivePane: vi.fn(),
+    prefetchImagePreviewSource: vi.fn().mockResolvedValue(null),
+    onDownloadSingleImage: vi.fn(),
+    ...overrides,
+  }
+}
+
+function setupRects() {
+  return setupRectsWith({
+    stage: { left: 0, top: 0, width: 800, height: 600 },
+    image: { left: 50, top: 40, width: 400, height: 300 },
+    natural: { width: 1200, height: 900 },
+  })
+}
+
+function setupRectsWith(rects: {
+  stage: { left: number; top: number; width: number; height: number }
+  image: { left: number; top: number; width: number; height: number }
+  natural: { width: number; height: number }
+}) {
+  const stage = screen.getByRole('application') as HTMLDivElement
+  const wrap = stage.querySelector('.preview-image-wrap') as HTMLDivElement
+  const image = stage.querySelector('.preview-image') as HTMLImageElement
+
+  const stageRight = rects.stage.left + rects.stage.width
+  const stageBottom = rects.stage.top + rects.stage.height
+  Object.defineProperty(stage, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      left: rects.stage.left,
+      top: rects.stage.top,
+      width: rects.stage.width,
+      height: rects.stage.height,
+      right: stageRight,
+      bottom: stageBottom,
+      x: rects.stage.left,
+      y: rects.stage.top,
+      toJSON: () => ({}),
+    }),
+  })
+  if (wrap) {
+    Object.defineProperty(wrap, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        left: rects.stage.left,
+        top: rects.stage.top,
+        width: rects.stage.width,
+        height: rects.stage.height,
+        right: stageRight,
+        bottom: stageBottom,
+        x: rects.stage.left,
+        y: rects.stage.top,
+        toJSON: () => ({}),
+      }),
+    })
+  }
+  const imageRight = rects.image.left + rects.image.width
+  const imageBottom = rects.image.top + rects.image.height
+  Object.defineProperty(image, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => ({
+      left: rects.image.left,
+      top: rects.image.top,
+      width: rects.image.width,
+      height: rects.image.height,
+      right: imageRight,
+      bottom: imageBottom,
+      x: rects.image.left,
+      y: rects.image.top,
+      toJSON: () => ({}),
+    }),
+  })
+  Object.defineProperty(image, 'naturalWidth', { configurable: true, value: rects.natural.width })
+  Object.defineProperty(image, 'naturalHeight', { configurable: true, value: rects.natural.height })
+
+  return stage
+}
+
+describe('ImagePreviewModal interactions', () => {
+  it('handles keyboard shortcuts', () => {
+    const props = buildProps({ previewImages: [{ id: '1', seq: 1, src: '/1.png' }, { id: '2', seq: 2, src: '/2.png' }] })
+    render(<ImagePreviewModal {...props} />)
+    const stage = setupRects()
+
+    fireEvent.keyDown(stage, { key: 'Escape' })
+    fireEvent.keyDown(stage, { key: 'ArrowLeft' })
+    fireEvent.keyDown(stage, { key: 'ArrowRight' })
+    fireEvent.keyDown(stage, { key: 'Home' })
+    fireEvent.keyDown(stage, { key: 'End' })
+    fireEvent.keyDown(stage, { key: '+' })
+    fireEvent.keyDown(stage, { key: '-' })
+    fireEvent.keyDown(stage, { key: '1' })
+    fireEvent.keyDown(stage, { key: 'i' })
+    fireEvent.keyDown(stage, { key: ' ' })
+    fireEvent.keyDown(stage, { key: 'f' })
+    fireEvent.keyDown(stage, { key: 'x', code: 'KeyF' })
+
+    expect(props.closePreview).toHaveBeenCalledTimes(1)
+    expect(props.goPrevPreview).toHaveBeenCalledTimes(1)
+    expect(props.goNextPreview).toHaveBeenCalledTimes(1)
+    expect(props.goFirstPreview).toHaveBeenCalledTimes(1)
+    expect(props.goLastPreview).toHaveBeenCalledTimes(1)
+    expect(props.zoomBy).toHaveBeenCalledTimes(2)
+    expect(props.toggleFitMode).toHaveBeenCalledTimes(3)
+    expect(props.setActualPixelMode).toHaveBeenCalledTimes(1)
+    expect(props.toggleInfoPanel).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps hotkeys working when focus is on close button', () => {
+    const props = buildProps({
+      previewImages: [{ id: '1', seq: 1, src: '/1.png' }, { id: '2', seq: 2, src: '/2.png' }],
+    })
+    render(<ImagePreviewModal {...props} />)
+    const stage = setupRects()
+
+    const closeButton = document.querySelector('.ant-modal-close') as HTMLButtonElement
+    closeButton.focus()
+    fireEvent.keyDown(closeButton, { key: 'ArrowRight' })
+
+    expect(props.goNextPreview).toHaveBeenCalledTimes(1)
+    expect(document.activeElement).toBe(stage)
+  })
+
+  it('supports wheel zoom (alt), wheel pan and double click zoom step', () => {
+    const dragOriginRef = { current: null as DragOrigin | null }
+    const props = buildProps({ dragOriginRef })
+    const view = render(<ImagePreviewModal {...props} />)
+    const stage = setupRects()
+
+    fireEvent.wheel(stage, { deltaY: -120, ctrlKey: true, clientX: 400, clientY: 300 })
+    fireEvent.wheel(stage, { deltaY: -120, metaKey: true, clientX: 400, clientY: 300 })
+    fireEvent.wheel(stage, { deltaY: -120, altKey: true, clientX: 400, clientY: 300 })
+    fireEvent.wheel(stage, { deltaY: 120, altKey: true, clientX: 400, clientY: 300 })
+    fireEvent.wheel(stage, { deltaY: 120, deltaX: 20, shiftKey: false })
+
+    fireEvent.pointerDown(stage, { pointerId: 1, button: 0, clientX: 400, clientY: 300 })
+    view.rerender(<ImagePreviewModal {...props} />)
+    const refreshedStage = setupRects()
+    fireEvent.doubleClick(refreshedStage, { clientX: 420, clientY: 280 })
+
+    expect(props.zoomBy).toHaveBeenCalledTimes(3)
+    expect(props.panBy).toHaveBeenCalledTimes(1)
+    expect(props.toggleFitMode).not.toHaveBeenCalled()
+  })
+
+  it('derives actual zoom from portrait fit size when toggling with F', () => {
+    const props = buildProps({
+      zoom: 1,
+      interactionMode: 'fit',
+      pixelMode: 'fit',
+      transform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      sharedTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      leftTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      rightTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+    })
+    render(<ImagePreviewModal {...props} />)
+    const stage = setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 250, top: 0, width: 300, height: 600 },
+      natural: { width: 1200, height: 2400 },
+    })
+
+    fireEvent.keyDown(stage, { key: 'f' })
+
+    expect(props.toggleFitMode).toHaveBeenCalledTimes(1)
+    expect(props.toggleFitMode).toHaveBeenCalledWith(
+      4,
+      expect.objectContaining({
+        viewport: { width: 800, height: 600 },
+        content: { width: 300, height: 600 },
+      }),
+    )
+  })
+
+  it('fits full single image on first open', () => {
+    const props = buildProps({
+      zoom: 1,
+      interactionMode: 'fit',
+      pixelMode: 'fit',
+      transform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      sharedTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      leftTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      rightTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+    })
+    render(<ImagePreviewModal {...props} />)
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 250, top: 0, width: 300, height: 600 },
+      natural: { width: 1200, height: 2400 },
+    })
+
+    const image = screen.getByAltText('preview-1') as HTMLImageElement
+    fireEvent.load(image)
+
+    expect(parseFloat(image.style.width)).toBeCloseTo(300, 3)
+    expect(parseFloat(image.style.height)).toBeCloseTo(600, 3)
+  })
+
+  it('shows simplified footer status and removes deprecated toolbar actions', () => {
+    const props = buildProps({
+      zoom: 1,
+      interactionMode: 'fit',
+      pixelMode: 'fit',
+      transform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      sharedTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      leftTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      rightTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+    })
+
+    render(<ImagePreviewModal {...props} />)
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 250, top: 0, width: 300, height: 600 },
+      natural: { width: 1200, height: 2400 },
+    })
+
+    fireEvent.load(screen.getByAltText('preview-1'))
+
+    expect(screen.getByText('1/1')).toBeInTheDocument()
+    expect(screen.getByText('25%')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重置' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '全屏' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '退出全屏' })).toBeNull()
+    expect(document.querySelector('.preview-footer-status')?.textContent).not.toContain('序号')
+    expect(document.querySelector('.preview-footer-status')?.textContent).not.toContain('适配')
+  })
+
+  it('recomputes single-image fit when switching images', () => {
+    const props = buildProps({
+      zoom: 1,
+      interactionMode: 'fit',
+      pixelMode: 'fit',
+      transform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      sharedTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      leftTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      rightTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+    })
+    const view = render(<ImagePreviewModal {...props} />)
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 250, top: 0, width: 300, height: 600 },
+      natural: { width: 1200, height: 2400 },
+    })
+
+    let image = screen.getByAltText('preview-1') as HTMLImageElement
+    fireEvent.load(image)
+    expect(parseFloat(image.style.width)).toBeCloseTo(300, 3)
+    expect(parseFloat(image.style.height)).toBeCloseTo(600, 3)
+
+    view.rerender(
+      <ImagePreviewModal
+        {...props}
+        currentPreviewImage={{ id: '2', seq: 2, src: '/2.png' }}
+        previewImages={[
+          { id: '1', seq: 1, src: '/1.png' },
+          { id: '2', seq: 2, src: '/2.png' },
+        ]}
+      />,
+    )
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 0, top: 100, width: 800, height: 400 },
+      natural: { width: 2400, height: 1200 },
+    })
+
+    image = screen.getByAltText('preview-2') as HTMLImageElement
+    fireEvent.load(image)
+    expect(parseFloat(image.style.width)).toBeCloseTo(800, 3)
+    expect(parseFloat(image.style.height)).toBeCloseTo(400, 3)
+  })
+
+  it('recomputes fit on resize only when interaction mode is fit', () => {
+    const baseProps = buildProps({
+      zoom: 1,
+      interactionMode: 'fit',
+      pixelMode: 'fit',
+      transform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      sharedTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      leftTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+      rightTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+    })
+    const view = render(<ImagePreviewModal {...baseProps} />)
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 250, top: 0, width: 300, height: 600 },
+      natural: { width: 1200, height: 2400 },
+    })
+
+    const image = screen.getByAltText('preview-1') as HTMLImageElement
+    fireEvent.load(image)
+    expect(parseFloat(image.style.width)).toBeCloseTo(300, 3)
+
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 500, height: 500 },
+      image: { left: 125, top: 0, width: 250, height: 500 },
+      natural: { width: 1200, height: 2400 },
+    })
+
+    const wrap = document.querySelector('.preview-image-wrap') as HTMLDivElement
+    triggerResize(wrap)
+    expect(parseFloat(image.style.width)).toBeCloseTo(250, 3)
+    expect(parseFloat(image.style.height)).toBeCloseTo(500, 3)
+
+    view.rerender(
+      <ImagePreviewModal
+        {...baseProps}
+        interactionMode="actual"
+        pixelMode="actual"
+        zoom={2}
+        transform={{ zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' }}
+        sharedTransform={{ zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' }}
+        leftTransform={{ zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' }}
+        rightTransform={{ zoom: 2, offset: { x: 0, y: 0 }, mode: 'actual' }}
+      />,
+    )
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 300, height: 300 },
+      image: { left: 75, top: 0, width: 150, height: 300 },
+      natural: { width: 1200, height: 2400 },
+    })
+    triggerResize(wrap)
+
+    expect(parseFloat(image.style.width)).toBeCloseTo(250, 3)
+    expect(parseFloat(image.style.height)).toBeCloseTo(500, 3)
+  })
+
+  it('refreshes the large image after switching thumbnails with async preview sources', async () => {
+    const pendingResolvers = new Map<string, Array<(value: {
+      src: string
+      kind: 'idb-blob'
+      release: () => void
+      cleanup: () => void
+    }) => void>>()
+    const resolveImagePreviewSource = vi.fn().mockImplementation((source: { refKey?: string }) => (
+      new Promise((resolve) => {
+        const refKey = source.refKey ?? ''
+        pendingResolvers.set(refKey, [...(pendingResolvers.get(refKey) ?? []), resolve])
+      })
+    ))
+
+    function StatefulPreviewModal() {
+      const previewImages = [
+        { id: '1', seq: 1, refKind: 'idb-blob' as const, refKey: 'asset-1' },
+        { id: '2', seq: 2, refKind: 'idb-blob' as const, refKey: 'asset-2' },
+      ]
+      const [index, setIndex] = useState(0)
+      const currentPreviewImage = previewImages[index]
+
+      return (
+        <ImagePreviewModal
+          {...buildProps({
+            previewImages,
+            currentPreviewImage,
+            interactionMode: 'fit',
+            pixelMode: 'fit',
+            zoom: 1,
+            transform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+            sharedTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+            leftTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+            rightTransform: { zoom: 1, offset: { x: 0, y: 0 }, mode: 'fit' },
+            goToPreview: setIndex,
+            resolveImagePreviewSource,
+          })}
+        />
+      )
+    }
+
+    render(<StatefulPreviewModal />)
+
+    expect(await screen.findByText('加载预览中')).toBeInTheDocument()
+    act(() => {
+      pendingResolvers.get('asset-1')?.forEach((resolve) => resolve({
+        src: '/resolved-asset-1.png',
+        kind: 'idb-blob',
+        release: () => {},
+        cleanup: () => {},
+      }))
+    })
+
+    await waitFor(() => {
+      expect(screen.getByAltText('preview-1')).toBeInTheDocument()
+    })
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 250, top: 0, width: 300, height: 600 },
+      natural: { width: 1200, height: 2400 },
+    })
+    fireEvent.load(screen.getByAltText('preview-1'))
+
+    fireEvent.click(document.querySelectorAll('.preview-thumb')[1] as HTMLButtonElement)
+
+    expect(await screen.findByText('加载预览中')).toBeInTheDocument()
+    act(() => {
+      pendingResolvers.get('asset-2')?.forEach((resolve) => resolve({
+        src: '/resolved-asset-2.png',
+        kind: 'idb-blob',
+        release: () => {},
+        cleanup: () => {},
+      }))
+    })
+    await waitFor(() => {
+      expect(screen.getByAltText('preview-2')).toBeInTheDocument()
+    })
+    setupRectsWith({
+      stage: { left: 0, top: 0, width: 800, height: 600 },
+      image: { left: 0, top: 100, width: 800, height: 400 },
+      natural: { width: 2400, height: 1200 },
+    })
+    fireEvent.load(screen.getByAltText('preview-2'))
+
+    expect(resolveImagePreviewSource).toHaveBeenCalledWith(
+      expect.objectContaining({ refKey: 'asset-2' }),
+      { priority: 'modal' },
+    )
+    expect(screen.queryByText('加载预览中')).toBeNull()
+  })
+
+  it('shows preview download button and triggers single-image download', () => {
+    const onDownloadSingleImage = vi.fn()
+    const props = buildProps({
+      previewImages: [{ id: '1', runId: 'run-1', seq: 1, src: '/1.png' }],
+      currentPreviewImage: { id: '1', runId: 'run-1', seq: 1, src: '/1.png' },
+      onDownloadSingleImage,
+    })
+
+    render(<ImagePreviewModal {...props} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /下载/ }))
+
+    expect(onDownloadSingleImage).toHaveBeenCalledWith('run-1', '1')
+  })
+
+  it('shows info button and toggles inline details panel', () => {
+    const toggleInfoPanel = vi.fn()
+    const props = buildProps({
+      toggleInfoPanel,
+    })
+
+    render(<ImagePreviewModal {...props} />)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /信息/ })[0] as HTMLButtonElement)
+
+    expect(toggleInfoPanel).toHaveBeenCalledTimes(1)
+  })
+})

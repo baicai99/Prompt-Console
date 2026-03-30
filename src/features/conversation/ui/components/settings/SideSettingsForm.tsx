@@ -4,6 +4,7 @@ import type { ApiChannel } from '../../../../../types/channel'
 import type { ModelSpec } from '../../../../../types/model'
 import type { SettingPrimitive } from '../../../../../types/primitives'
 import type { Side, SingleSideSettings } from '../../../../../types/conversation'
+import { buildJimengVirtualChannel, JIMENG_VIRTUAL_CHANNEL_ID } from '../../../../../services/jimengVirtualChannel'
 import { settingsPanelService } from '../../../application/settingsPanelService'
 import {
   isBatchDownloadBlockedForParamValues,
@@ -75,7 +76,8 @@ export function SideSettingsForm(props: SideSettingsFormProps) {
   }
 
   const selectedTag = modelTagBySide[side] ?? ALL_MODEL_TAG
-  const currentChannel = channels.find((item) => item.id === settings.channelId) ?? null
+  const currentChannel = channels.find((item) => item.id === settings.channelId)
+    ?? (settings.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
   const filteredModels = filterModelsByTag(models, selectedTag, ALL_MODEL_TAG)
   const imageModels = filteredModels.filter((item) => !isBlockedImageModel({ id: item.id, name: item.name }))
   const textModels = filteredModels.filter((item) => !isBlockedTextModel({ id: item.id, name: item.name }))

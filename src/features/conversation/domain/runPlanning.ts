@@ -9,6 +9,7 @@ import type {
 import type { ApiChannel } from '../../../types/channel'
 import type { RunSourceImageRef } from '../../../types/image'
 import type { ModelCatalog } from '../../../types/model'
+import { buildJimengVirtualChannel, JIMENG_VIRTUAL_CHANNEL_ID } from '../../../services/jimengVirtualChannel'
 import { makeId } from '../../../utils/chat'
 import {
   getDefaultModel,
@@ -168,6 +169,7 @@ export function buildRetryPlan(input: {
 
   const model = getModelById(modelCatalog, sourceRun.modelId) ?? getDefaultModel(modelCatalog)
   const channel = channels.find((item) => item.id === sourceRun.channelId)
+    ?? (sourceRun.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
   const fallbackChannel = sourceRun.channelName
     ? { id: sourceRun.channelId ?? makeId(), name: sourceRun.channelName, baseUrl: '', apiKey: '' }
     : undefined
@@ -226,6 +228,7 @@ export function buildReplayPlan(input: {
 
   const model = getModelById(modelCatalog, sourceRun.modelId) ?? getDefaultModel(modelCatalog)
   const channel = channels.find((item) => item.id === sourceRun.channelId)
+    ?? (sourceRun.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
   const fallbackChannel = sourceRun.channelName
     ? { id: sourceRun.channelId ?? makeId(), name: sourceRun.channelName, baseUrl: '', apiKey: '' }
     : undefined

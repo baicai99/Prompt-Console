@@ -2,6 +2,7 @@ import type { ApiChannel } from '../../types/channel'
 import type { ProviderAdapter, ProviderCapabilities, ProviderId } from '../../types/provider'
 import { byteplusArkAdapter } from './byteplusArkAdapter'
 import { geminiAdapter } from './geminiAdapter'
+import { jimengProxyAdapter } from './jimengProxyAdapter'
 import { midjourneyAdapter } from './midjourneyAdapter'
 import { openAICompatibleAdapter } from './openaiCompatibleAdapter'
 import { resolveProviderId } from './providerId'
@@ -10,6 +11,7 @@ const providerMap = new Map<ProviderId, ProviderAdapter>([
   [openAICompatibleAdapter.id, openAICompatibleAdapter],
   [byteplusArkAdapter.id, byteplusArkAdapter],
   [geminiAdapter.id, geminiAdapter],
+  [jimengProxyAdapter.id, jimengProxyAdapter],
   [midjourneyAdapter.id, midjourneyAdapter],
 ])
 

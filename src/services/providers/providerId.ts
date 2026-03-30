@@ -4,6 +4,7 @@ const OPENAI_COMPATIBLE_PROVIDER_ID: ProviderId = 'openai-compatible'
 const MIDJOURNEY_PROVIDER_ID: ProviderId = 'midjourney-proxy'
 const GEMINI_PROVIDER_ID: ProviderId = 'gemini-api'
 const BYTEPLUS_PROVIDER_ID: ProviderId = 'byteplus-ark'
+const JIMENG_PROXY_PROVIDER_ID: ProviderId = 'jimeng-proxy'
 
 function normalizeProviderId(value: unknown): ProviderId | null {
   if (typeof value !== 'string') {
@@ -35,6 +36,9 @@ function inferProviderFromBaseUrl(baseUrl: string, apiKey?: string): ProviderId 
     normalizedApiKey.startsWith('AIza')
   ) {
     return GEMINI_PROVIDER_ID
+  }
+  if (value.includes('127.0.0.1:8787') || value.includes('127.0.0.1:8788') || value.includes('jimeng-bff')) {
+    return JIMENG_PROXY_PROVIDER_ID
   }
   return OPENAI_COMPATIBLE_PROVIDER_ID
 }

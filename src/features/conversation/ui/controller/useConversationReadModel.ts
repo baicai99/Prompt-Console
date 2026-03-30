@@ -1,5 +1,6 @@
 import { useDeferredValue, useMemo } from 'react'
 import type { Side } from '../../../../types/conversation'
+import { withJimengVirtualChannel } from '../../../../services/jimengVirtualChannel'
 import type { ConversationDraftSourceImage, ConversationReadModel } from '../../application/conversationControllerContract'
 import { conversationModelCatalogPort } from '../../application/ports/modelCatalogPort'
 import { createConversationReadModel } from '../../application/queries/conversationReadModel'
@@ -63,9 +64,10 @@ export function useConversationReadModel(input: UseConversationReadModelInput): 
   const runtimeState = conversationSelectors.selectRuntimeState(input.state)
   const composerState = conversationSelectors.selectComposerState(input.state)
   const settingsState = conversationSelectors.selectSettingsState(input.state)
+  const availableChannels = useMemo(() => withJimengVirtualChannel(settingsState.channels), [settingsState.channels])
   const modelCatalog = useMemo(
-    () => conversationModelCatalogPort.getModelCatalogFromChannels(settingsState.channels),
-    [settingsState.channels],
+    () => conversationModelCatalogPort.getModelCatalogFromChannels(availableChannels),
+    [availableChannels],
   )
   const activeConversation = conversationSelectors.selectActiveConversation(input.state)
   const deferredDraft = useDeferredValue(composerState.draft)

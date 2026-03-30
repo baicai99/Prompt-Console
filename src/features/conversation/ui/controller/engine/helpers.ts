@@ -1,5 +1,6 @@
 import { conversationImageReferencePort } from '../../../application/ports/imageReferencePort'
 import { conversationImageSizingPort } from '../../../application/ports/imageSizingPort'
+import { JIMENG_VIRTUAL_CHANNEL_ID } from '../../../../../services/jimengVirtualChannel'
 import { inferModelShortcutTokens } from '../../../domain/modelShortcuts'
 import type { PanelVariableRow } from '../../../domain/types'
 import type { ApiChannel } from '../../../../../types/channel'
@@ -61,7 +62,11 @@ function getConversationLastMessageEpoch(conversation: Conversation | undefined)
 }
 
 export function hasConfiguredApiChannel(channels: ApiChannel[]): boolean {
-  return channels.some((channel) => channel.baseUrl.trim() && channel.apiKey.trim())
+  return channels.some((channel) =>
+    channel.id === JIMENG_VIRTUAL_CHANNEL_ID
+      ? Boolean(channel.baseUrl.trim())
+      : Boolean(channel.baseUrl.trim() && channel.apiKey.trim()),
+  )
 }
 
 export function buildSendBlockedAssistantActions(kind: 'missing-model' | 'missing-api' | 'requires-proxy'): MessageAction[] {

@@ -1,6 +1,6 @@
 import type { SettingPrimitive } from './primitives'
 
-export type ProviderId = 'openai-compatible' | 'midjourney-proxy' | 'custom' | (string & {})
+export type ProviderId = 'openai-compatible' | 'midjourney-proxy' | 'jimeng-proxy' | 'custom' | (string & {})
 
 export type ProviderErrorCode =
   | 'auth'

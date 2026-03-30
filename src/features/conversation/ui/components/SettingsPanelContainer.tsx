@@ -29,6 +29,7 @@ import { SettingsPanelFooter } from './settings/SettingsPanelFooter'
 import { WindowSettingsTabs } from './settings/WindowSettingsTabs'
 import { SyncWindowSettingsModal } from './settings/SyncWindowSettingsModal'
 import { GlobalChannelSection } from './settings/GlobalChannelSection'
+import { withJimengVirtualChannel } from '../../../../services/jimengVirtualChannel'
 
 const { Text } = Typography
 const ALL_MODEL_TAG = '__all__'
@@ -125,6 +126,7 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
     sizeMD: token.sizeSM,
     sizeLG: token.sizeSM,
   }), [token.paddingSM, token.sizeSM])
+  const availableChannels = useMemo(() => withJimengVirtualChannel(channels), [channels])
 
   const setActiveSideTab = useCallback((nextSide: Side) => {
     if (controlledActiveSideTab === undefined) {
@@ -151,15 +153,15 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
     filteredModelListItems,
     loadModelListForChannel,
   } = useChannelModels({
-    channels,
+    channels: availableChannels,
     onChannelsChange,
     fetchChannelModels,
     fetchChannelModelEntries,
     messageApi,
   })
   const channelsVersion = useMemo(
-    () => channels.map((channel) => `${channel.id}:${channel.models?.length ?? 0}`).join('|'),
-    [channels],
+    () => availableChannels.map((channel) => `${channel.id}:${channel.models?.length ?? 0}`).join('|'),
+    [availableChannels],
   )
   const {
     tableContainerRef: channelTableContainerRef,
@@ -301,7 +303,7 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
       settingsBySide={settingsBySide}
       modelTagBySide={modelTagBySide}
       setModelTagBySide={setModelTagBySide}
-      channels={channels}
+      channels={availableChannels}
       models={models}
       availableModelTags={availableModelTags}
       onSettingsChange={handleSettingsChange}
@@ -323,14 +325,14 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
   const channelColumns = useMemo(
     () =>
       buildChannelColumns({
-        channels,
+        channels: availableChannels,
         clearChannelImportState,
         onChannelsChange,
         openModelListDrawer,
         onEditChannel: openEditChannelModal,
       }),
     [
-      channels,
+      availableChannels,
       clearChannelImportState,
       onChannelsChange,
       openModelListDrawer,
@@ -394,7 +396,11 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
 
           <Row gutter={[token.sizeSM, token.sizeSM]}>
             <Col xs={24} xl={8}>
-              <GlobalChannelSection onOpenDrawer={() => setIsDrawerOpen(true)} />
+              <GlobalChannelSection
+                onOpenDrawer={() => setIsDrawerOpen(true)}
+                channels={availableChannels}
+                onChannelsChange={onChannelsChange}
+              />
             </Col>
             <Col xs={24} xl={16}>
               <GlobalOutputSection
@@ -437,7 +443,7 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
           channelDrawerWidth={channelDrawerWidth}
           channelTableContainerRef={channelTableContainerRef}
           channelColumns={channelColumns}
-          channels={channels}
+          channels={availableChannels}
           isRefreshingChannels={isRefreshingChannels}
           refreshChannelModels={refreshChannelModels}
           openModelListDrawer={openModelListDrawer}

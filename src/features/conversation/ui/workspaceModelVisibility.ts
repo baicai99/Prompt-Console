@@ -1,6 +1,7 @@
 import type { ApiChannel } from '../../../types/channel'
 import type { Side, SingleSideSettings } from '../../../types/conversation'
 import type { ModelSpec } from '../../../types/model'
+import { buildJimengVirtualChannel, JIMENG_VIRTUAL_CHANNEL_ID } from '../../../services/jimengVirtualChannel'
 import { parseScopedModelId } from '../../../utils/modelIdentity'
 
 function resolveChannelFromSelectedModel(
@@ -23,6 +24,9 @@ function resolveChannelFromSelectedModel(
 
   const catalogModel = models.find((model) => model.id === normalizedModelId)
   if (catalogModel?.channelId) {
+    if (catalogModel.channelId === JIMENG_VIRTUAL_CHANNEL_ID) {
+      return buildJimengVirtualChannel()
+    }
     return channels.find((channel) => channel.id === catalogModel.channelId) ?? null
   }
 
@@ -35,6 +39,9 @@ function resolveChannelFromSelectedModel(
 
   const rawModelMatch = models.find((model) => model.rawId === normalizedModelId)
   if (rawModelMatch?.channelId) {
+    if (rawModelMatch.channelId === JIMENG_VIRTUAL_CHANNEL_ID) {
+      return buildJimengVirtualChannel()
+    }
     return channels.find((channel) => channel.id === rawModelMatch.channelId) ?? null
   }
 
@@ -51,7 +58,7 @@ export function resolveVisibleModelsForSide(input: {
   const boundChannelId = settings?.channelId?.trim()
   const channel =
     (boundChannelId
-      ? input.channels.find((item) => item.id === boundChannelId) ?? null
+      ? input.channels.find((item) => item.id === boundChannelId) ?? (boundChannelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
       : null)
     ?? resolveChannelFromSelectedModel(settings, input.channels, input.models)
     ?? (input.channels.length === 1 ? input.channels[0] ?? null : null)

@@ -1,4 +1,5 @@
 import type { ApiChannel } from '../../../../../../types/channel'
+import { JIMENG_VIRTUAL_CHANNEL_ID, buildJimengVirtualChannel, withJimengVirtualChannel } from '../../../../../../services/jimengVirtualChannel'
 import type { ConversationState } from '../../../../state/conversationState'
 import { conversationProviderSupportPort } from '../../../../application/ports/providerSupportPort'
 import { resolveCurrentModeModelId } from '../../../../domain/generationMode'
@@ -25,7 +26,7 @@ function resolveSelectedModelId(settings: SingleSideSettings): string {
 }
 
 function resolveChannelForSettings(channels: ApiChannel[], settings: SingleSideSettings): ApiChannel | null {
-  const configuredChannels = channels.filter(isConfiguredChannel)
+  const configuredChannels = withJimengVirtualChannel(channels).filter(isConfiguredChannel)
   if (configuredChannels.length === 0) {
     return null
   }
@@ -87,6 +88,7 @@ export function resolveSendBlockedReason(
   modelCatalog: SendFlowDeps['modelCatalog'],
   activeState: ActiveConversationState,
 ): SendBlockedReason | null {
+  const availableChannels = withJimengVirtualChannel(snapshot.channels)
   const targetSides = activeState.activeSideMode === 'single'
     ? (['single'] as Side[])
     : getMultiSideIds(activeState.activeSideCount)
@@ -108,7 +110,7 @@ export function resolveSendBlockedReason(
     }
   }
 
-  if (!hasConfiguredApiChannel(snapshot.channels)) {
+  if (!hasConfiguredApiChannel(availableChannels)) {
     return {
       kind: 'missing-api',
       assistantContent: '还没有可用的 API 配置。请先在右侧 Settings 中添加 Base URL 与 API Key。',
@@ -117,7 +119,9 @@ export function resolveSendBlockedReason(
   }
 
   const missingBoundChannel = selectedSettings.find((settings) => {
-    const channel = snapshot.channels.find((item) => item.id === settings.channelId)
+    const channel =
+      availableChannels.find((item) => item.id === settings.channelId)
+      ?? (settings.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
     return !channel || !isConfiguredChannel(channel)
   })
   if (missingBoundChannel) {
@@ -129,7 +133,10 @@ export function resolveSendBlockedReason(
   }
 
   const selectedChannels = selectedSettings
-    .map((settings) => snapshot.channels.find((item) => item.id === settings.channelId))
+    .map((settings) =>
+      availableChannels.find((item) => item.id === settings.channelId)
+      ?? (settings.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null),
+    )
     .filter((channel): channel is ApiChannel => Boolean(channel))
 
   const incompatibleChannel = selectedChannels.find((channel) => {

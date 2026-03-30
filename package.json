@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:all": "node scripts/dev-all.mjs",
     "build": "tsc -b && node node_modules/vite/bin/vite.js build",
+    "jimeng:bff": "node scripts/jimeng-bff.mjs",
     "lint": "eslint .",
     "check:architecture": "node scripts/check-architecture-boundaries.mjs",
     "check:bundle": "node scripts/check-bundle.mjs",
@@ -45,6 +47,7 @@
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
     "jsdom": "^26.1.0",
+    "playwright-core": "^1.58.2",
     "tailwindcss": "^4.2.2",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.48.0",

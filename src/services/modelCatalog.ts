@@ -1,6 +1,7 @@
 import type { ApiChannel } from '../types/channel'
 import type { SettingPrimitive } from '../types/conversation'
 import type { ModelCatalog, ModelSpec } from '../types/model'
+import { loadJimengModelCatalog } from './jimengModelMapping'
 import { resolveChannelProviderAdapter, resolveChannelProviderId } from './providers/providerSelection'
 import { buildScopedModelId } from '../utils/modelIdentity'
 
@@ -105,6 +106,14 @@ export function getModelCatalogFromChannels(channels: ApiChannel[]): ModelCatalo
           })),
       } satisfies ModelSpec)
     }
+  }
+
+  const jimengCatalog = loadJimengModelCatalog()
+  for (const model of jimengCatalog.models) {
+    if (!model?.id) {
+      continue
+    }
+    merged.set(model.id, model)
   }
 
   return merged.size > 0 ? { models: Array.from(merged.values()) } : EMPTY_CATALOG

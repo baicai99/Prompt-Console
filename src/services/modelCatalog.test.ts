@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { clearJimengModelCatalog, saveJimengModelCatalog } from './jimengModelMapping'
 import { getModelCatalogFromChannels } from './modelCatalog'
 
 describe('modelCatalog', () => {
+  afterEach(() => {
+    clearJimengModelCatalog()
+  })
+
   it('keeps shared size controls out of model params', () => {
     const catalog = getModelCatalogFromChannels([
       {
@@ -83,5 +88,38 @@ describe('modelCatalog', () => {
     expect(catalog.models.map((item) => item.name)).toEqual(['gpt-4.1（OpenAI）', 'gpt-4.1（Anthropic）'])
     expect(new Set(catalog.models.map((item) => item.id)).size).toBe(2)
     expect(catalog.models.every((item) => item.rawId === 'gpt-4.1')).toBe(true)
+  })
+
+  it('merges cached Jimeng models into the main catalog', () => {
+    saveJimengModelCatalog({
+      models: [
+        {
+          id: '__jimeng-proxy__::high_aes_general_v50',
+          rawId: 'high_aes_general_v50',
+          name: '图片5.0 Lite（即梦图片）',
+          channelId: '__jimeng-proxy__',
+          sourceName: '即梦图片',
+          tags: ['jimeng-proxy', '即梦'],
+          params: [
+            {
+              key: 'resolution',
+              label: '清晰度',
+              type: 'enum',
+              default: '2k',
+              options: ['2k', '4k'],
+            },
+          ],
+        },
+      ],
+    })
+
+    const catalog = getModelCatalogFromChannels([])
+
+    expect(catalog.models).toHaveLength(1)
+    expect(catalog.models[0]).toMatchObject({
+      id: '__jimeng-proxy__::high_aes_general_v50',
+      channelId: '__jimeng-proxy__',
+      sourceName: '即梦图片',
+    })
   })
 })

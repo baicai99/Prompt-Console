@@ -207,4 +207,61 @@ describe('conversationStorage', () => {
     expect(localStorage.getItem('m3:channels')).not.toBeNull()
     expect(localStorage.getItem('m3:staged-settings')).not.toBeNull()
   })
+
+  it('strips legacy removed-provider state while loading persisted settings', () => {
+    localStorage.setItem('jimeng:proxy-base-url', 'http://127.0.0.1:8787')
+    localStorage.setItem('jimeng:model-catalog', '{"models":[]}')
+
+    saveChannelsToStorage([
+      { id: '__jimeng-proxy__', name: '即梦本地代理', baseUrl: 'http://127.0.0.1:8787', apiKey: 'local-session', providerId: 'jimeng-proxy' },
+      { id: 'ch-1', name: 'main', baseUrl: 'https://api.example.com', apiKey: 'key', models: ['model-a'] },
+    ])
+    saveStagedSettingsToStorage({
+      sideMode: 'single',
+      settingsBySide: {
+        single: {
+          generationMode: 'image',
+          resolution: '1K',
+          aspectRatio: '1:1',
+          imageCount: 1,
+          gridColumns: 1,
+          sizeMode: 'preset',
+          customWidth: 1024,
+          customHeight: 1024,
+          autoSave: false,
+          channelId: '__jimeng-proxy__',
+          modelId: '__jimeng-proxy__::model',
+          textModelId: '__jimeng-proxy__::text-model',
+          videoModelId: '__jimeng-proxy__::video-model',
+          paramValues: {},
+        },
+      },
+      runConcurrency: 1,
+      runConcurrencyUnlimited: false,
+      dynamicPromptEnabled: true,
+      autoRenameConversationTitle: true,
+      autoRenameConversationTitleModelId: '__jimeng-proxy__::title-model',
+      panelValueFormat: 'json',
+      panelVariables: [],
+      favoriteModelIds: ['model-a', '__jimeng-proxy__::favorite-model'],
+    })
+
+    expect(loadChannelsFromStorage()).toEqual([
+      expect.objectContaining({ id: 'ch-1' }),
+    ])
+    expect(loadStagedSettingsFromStorage()).toMatchObject({
+      settingsBySide: {
+        single: expect.objectContaining({
+          channelId: null,
+          modelId: '',
+          textModelId: '',
+          videoModelId: '',
+        }),
+      },
+      autoRenameConversationTitleModelId: null,
+      favoriteModelIds: ['model-a'],
+    })
+    expect(localStorage.getItem('jimeng:proxy-base-url')).toBeNull()
+    expect(localStorage.getItem('jimeng:model-catalog')).toBeNull()
+  })
 })

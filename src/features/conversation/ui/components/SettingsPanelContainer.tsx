@@ -29,7 +29,6 @@ import { SettingsPanelFooter } from './settings/SettingsPanelFooter'
 import { WindowSettingsTabs } from './settings/WindowSettingsTabs'
 import { SyncWindowSettingsModal } from './settings/SyncWindowSettingsModal'
 import { GlobalChannelSection } from './settings/GlobalChannelSection'
-import { withJimengVirtualChannel } from '../../../../services/jimengVirtualChannel'
 
 const { Text } = Typography
 const ALL_MODEL_TAG = '__all__'
@@ -126,7 +125,7 @@ export function SettingsPanelContainer(props: SettingsPanelProps) {
     sizeMD: token.sizeSM,
     sizeLG: token.sizeSM,
   }), [token.paddingSM, token.sizeSM])
-  const availableChannels = useMemo(() => withJimengVirtualChannel(channels), [channels])
+  const availableChannels = channels
 
   const setActiveSideTab = useCallback((nextSide: Side) => {
     if (controlledActiveSideTab === undefined) {

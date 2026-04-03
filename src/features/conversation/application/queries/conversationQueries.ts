@@ -10,6 +10,7 @@ export interface ResumableImageEntry {
   task: ImageTask
   run: Run
   image: Run['images'][number]
+  images: Run['images'][number][]
 }
 
 export function collectRuns(conversation: Conversation): Run[] {
@@ -79,11 +80,16 @@ export function buildFairResumableImageQueue(
       if (!run) {
         return null
       }
-      const image = run.images.find((entry) => entry.seq === task.seq)
-      if (!image) {
+      const targetSeqs = Array.isArray(task.imageSeqs) && task.imageSeqs.length > 0 ? task.imageSeqs : [task.seq]
+      const images = targetSeqs
+        .map((seq) => run.images.find((entry) => entry.seq === seq))
+        .filter((image): image is Run['images'][number] => Boolean(image))
+        .filter((image) => image.status === 'pending')
+      const image = images[0]
+      if (!image || images.length === 0) {
         return null
       }
-      return { task, run, image } satisfies ResumableImageEntry
+      return { task, run, image, images } satisfies ResumableImageEntry
     })
     .filter((entry): entry is ResumableImageEntry => Boolean(entry))
     .sort((left, right) => {

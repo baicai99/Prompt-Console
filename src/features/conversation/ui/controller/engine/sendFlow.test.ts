@@ -1056,4 +1056,150 @@ describe('createSendFlowModule', () => {
     })
     expect(unregisterActiveRun).toHaveBeenCalledWith('conv-1', 'run-1')
   })
+
+  it('ignores retry requests for legacy removed-provider runs', async () => {
+    const channel: ApiChannel = {
+      id: 'main',
+      name: 'Main',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'key',
+      providerId: 'openai-compatible',
+      models: ['gpt-image-1'],
+    }
+    const settingsBySide = {
+      single: createImageSettings(channel.id),
+    } satisfies Record<Side, SingleSideSettings>
+    const sourceRun: Run = {
+      id: 'run-legacy',
+      batchId: 'batch-legacy',
+      createdAt: '2026-03-10T00:00:00.000Z',
+      sideMode: 'single',
+      side: 'single',
+      prompt: 'draw cat',
+      imageCount: 1,
+      channelId: '__jimeng-proxy__',
+      channelName: '即梦本地代理',
+      modelId: '__jimeng-proxy__::high_aes_general_v50',
+      modelName: '即梦图片',
+      templatePrompt: 'draw cat',
+      finalPrompt: 'draw cat',
+      variablesSnapshot: {},
+      paramsSnapshot: {},
+      sourceImages: [],
+      settingsSnapshot: {
+        resolution: '1K',
+        aspectRatio: '1:1',
+        imageCount: 1,
+        gridColumns: 1,
+        sizeMode: 'preset',
+        customWidth: 1024,
+        customHeight: 1024,
+        autoSave: false,
+      },
+      retryAttempt: 0,
+      images: [
+        { id: 'img-1', seq: 1, status: 'failed', threadState: 'settled', error: 'bad gateway', errorCode: 'request_failed' },
+      ],
+    }
+    const conversation: Conversation = {
+      id: 'conv-legacy',
+      title: 'Legacy',
+      titleMode: 'default',
+      createdAt: '2026-03-10T00:00:00.000Z',
+      updatedAt: '2026-03-10T00:00:00.000Z',
+      sideMode: 'single',
+      sideCount: 1,
+      settingsBySide,
+      messages: [{
+        id: 'msg-legacy',
+        createdAt: '2026-03-10T00:00:00.000Z',
+        role: 'assistant',
+        content: 'done',
+        runs: [sourceRun],
+      }],
+    }
+    const state: ConversationState = {
+      summaries: [],
+      contents: { [conversation.id]: conversation },
+      runtimeTasksByConversationId: {},
+      activeId: conversation.id,
+      draft: '',
+      sendError: '',
+      isSending: false,
+      showAdvancedVariables: false,
+      dynamicPromptEnabled: false,
+      autoRenameConversationTitle: false,
+      autoRenameConversationTitleModelId: null,
+      panelValueFormat: 'json',
+      panelVariables: [],
+      favoriteModelIds: [],
+      runConcurrency: 1,
+      runConcurrencyUnlimited: false,
+      imageRuntimeSettings: DEFAULT_IMAGE_RUNTIME_SETTINGS,
+      loggingSettings: DEFAULT_LOGGING_SETTINGS,
+      stagedSideMode: 'single',
+      stagedSideCount: 1,
+      stagedSettingsBySide: settingsBySide,
+      channels: [channel],
+    }
+    const stateRef = { current: state } as MutableRefObject<ConversationState>
+    const replaceRunsInConversation = vi.fn()
+    const executeRetry = vi.fn()
+
+    const sendFlow = createSendFlowModule({
+      stateRef,
+      modelCatalog: { models: [{ id: 'main::gpt-image-1', name: 'gpt-image-1（Main）', params: [] }] },
+      orchestrator: {
+        planSendDraft: vi.fn(),
+        executeRunPlans: vi.fn(),
+        planRetry: vi.fn(() => ({
+          sourceRun,
+          rootRunId: 'run-legacy',
+          nextRetryAttempt: 1,
+          settings: settingsBySide.single,
+          modelId: 'main::gpt-image-1',
+          modelName: 'gpt-image-1（Main）',
+          paramsSnapshot: {},
+          sourceImages: [],
+          channel,
+        })),
+        planReplay: vi.fn(),
+        executeRetry,
+        executeReplay: vi.fn(),
+      },
+      streamText: vi.fn(),
+      dispatch: vi.fn(),
+      actions: { setDraft: vi.fn() },
+      notifier: { info: vi.fn(), warning: vi.fn(), success: vi.fn() },
+      ensureConversationLoaded: vi.fn(),
+      persistConversation: vi.fn(),
+      setActiveConversation: vi.fn(),
+      setSendScrollTrigger: vi.fn(),
+      setSendScrollTargetMessageId: vi.fn(),
+      clearDraftSourceImages: vi.fn(),
+      draftSourceImagesRef: { current: [] } as MutableRefObject<[]>,
+      appendSourceImageFiles: vi.fn(() => ({ invalidNames: [], droppedValidCount: 0 })),
+      persistDraftSourceImages: vi.fn(),
+      maxSourceImages: 4,
+      applyModelShortcut: vi.fn(() => settingsBySide),
+      resolveAdaptiveRunConcurrency: vi.fn(() => 1),
+      registerActiveRun: vi.fn(),
+      unregisterActiveRun: vi.fn(),
+      isRunStillActive: vi.fn(() => true),
+      updateImageTaskInConversation: vi.fn(),
+      updateRunImageInConversation: vi.fn(),
+      updateRunTaskStateInConversation: vi.fn(),
+      replaceRunsInConversation,
+      appendRunsToMessage: vi.fn(),
+      findRunInConversation: vi.fn(() => sourceRun),
+      replayingRunIdsRef: { current: new Set<string>() },
+      setReplayingRunIds: vi.fn(),
+      updateAssistantMessageContent: vi.fn(),
+    })
+
+    await sendFlow.retryRun('run-legacy')
+
+    expect(replaceRunsInConversation).not.toHaveBeenCalled()
+    expect(executeRetry).not.toHaveBeenCalled()
+  })
 })

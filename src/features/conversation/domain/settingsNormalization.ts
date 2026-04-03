@@ -292,6 +292,10 @@ function normalizeTaskImage(task: ImageTask): ImageTask {
   const refKind = task.refKind ?? (typeof task.refKey === 'string' && task.refKey.trim() ? 'idb-blob' : undefined)
   const fullRef = task.fullRef ?? task.fileRef
   const thumbRef = task.thumbRef ?? task.fileRef ?? task.fullRef
+  const imageSeqs = Array.isArray(task.imageSeqs)
+    ? Array.from(new Set(task.imageSeqs.filter((seq) => Number.isFinite(seq)).map((seq) => Math.max(1, Math.floor(seq)))))
+      .sort((left, right) => left - right)
+    : undefined
   const refKey =
     task.refKey ??
     (refKind === 'url'
@@ -310,6 +314,7 @@ function normalizeTaskImage(task: ImageTask): ImageTask {
     fileRef: task.fileRef ?? fullRef ?? thumbRef,
     refKind,
     refKey,
+    imageSeqs,
   }
 }
 

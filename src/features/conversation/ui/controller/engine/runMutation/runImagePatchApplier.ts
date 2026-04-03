@@ -1,6 +1,7 @@
 import { conversationImageTracePort } from '../../../../application/ports/imageTracePort'
 import { conversationLoggingPort } from '../../../../application/ports/loggingPort'
 import { createRunTaskState, resolveRunTaskStatusFromImages } from '../../../../domain/runTaskState'
+import type { Run } from '../../../../../../types/conversation'
 import type { RunMutationDeps, UpdateRunImageInput } from './types'
 import { findTaskForRunImage, mergeOptionalValue, resolveMirroredTaskStatus } from './shared'
 
@@ -8,6 +9,15 @@ const TRACE_FILE = 'src/features/conversation/ui/controller/engine/runMutation.t
 const TRACE_MODULE = 'runMutation'
 const { emitImageTaskDebug } = conversationLoggingPort
 const { emitImageChainTrace, summarizeImageRefs, summarizeString } = conversationImageTracePort
+
+function sanitizeBatchTaskMeta(meta: Run['images'][number]['serverTaskMeta']): Run['images'][number]['serverTaskMeta'] {
+  if (!meta) {
+    return meta
+  }
+  const rest = { ...meta }
+  delete rest.itemIndex
+  return Object.keys(rest).length > 0 ? rest : undefined
+}
 
 export function createRunImagePatchApplier(deps: Pick<
   RunMutationDeps,
@@ -95,6 +105,7 @@ export function createRunImagePatchApplier(deps: Pick<
       runId: input.runId,
       seq: input.seq,
     })
+    const isBatchTask = Boolean(matchedTask?.imageSeqs && matchedTask.imageSeqs.length > 1)
     const targetImage = run.images[imageIndex]
     emitImageChainTrace({
       file: TRACE_FILE,
@@ -253,32 +264,34 @@ export function createRunImagePatchApplier(deps: Pick<
       runs: nextRuns,
     }
 
-    const nextTaskStatus = resolveMirroredTaskStatus({
-      currentTask: matchedTask,
-      nextImageStatus: nextStatus,
-      nextImageErrorCode: nextImage.errorCode,
-    })
+    const nextTaskStatus = isBatchTask
+      ? (matchedTask?.status ?? 'submitting')
+      : resolveMirroredTaskStatus({
+        currentTask: matchedTask,
+        nextImageStatus: nextStatus,
+        nextImageErrorCode: nextImage.errorCode,
+      })
     const nextTaskRecord = matchedTask
       ? {
           ...matchedTask,
           status: nextTaskStatus,
           requestUrl: nextImage.requestUrl,
           providerTaskStatus: nextImage.providerTaskStatus,
-          threadState: nextImage.threadState,
-          resumeTransport: nextImage.resumeTransport,
-          fileRef: nextImage.fileRef,
-          thumbRef: nextImage.thumbRef,
-          fullRef: nextImage.fullRef,
-          refKind: nextImage.refKind,
-          refKey: nextImage.refKey,
+          threadState: isBatchTask ? matchedTask.threadState : nextImage.threadState,
+          resumeTransport: isBatchTask ? matchedTask.resumeTransport : nextImage.resumeTransport,
+          fileRef: isBatchTask ? matchedTask.fileRef : nextImage.fileRef,
+          thumbRef: isBatchTask ? matchedTask.thumbRef : nextImage.thumbRef,
+          fullRef: isBatchTask ? matchedTask.fullRef : nextImage.fullRef,
+          refKind: isBatchTask ? matchedTask.refKind : nextImage.refKind,
+          refKey: isBatchTask ? matchedTask.refKey : nextImage.refKey,
           serverTaskId: nextImage.serverTaskId,
-          serverTaskMeta: nextImage.serverTaskMeta,
-          bytes: nextImage.bytes,
-          error: nextImage.error,
-          errorCode: nextImage.errorCode,
+          serverTaskMeta: isBatchTask ? sanitizeBatchTaskMeta(nextImage.serverTaskMeta) : nextImage.serverTaskMeta,
+          bytes: isBatchTask ? matchedTask.bytes : nextImage.bytes,
+          error: isBatchTask ? matchedTask.error : nextImage.error,
+          errorCode: isBatchTask ? matchedTask.errorCode : nextImage.errorCode,
           queuedAt: nextImage.queuedAt ?? matchedTask.queuedAt,
           startedAt: nextImage.startedAt ?? matchedTask.startedAt,
-          completedAt: nextImage.completedAt ?? matchedTask.completedAt,
+          completedAt: isBatchTask ? matchedTask.completedAt : (nextImage.completedAt ?? matchedTask.completedAt),
         }
       : undefined
     if (nextTaskRecord) {

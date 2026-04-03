@@ -1,5 +1,4 @@
 import type { ApiChannel } from '../../../../../../types/channel'
-import { JIMENG_VIRTUAL_CHANNEL_ID, buildJimengVirtualChannel, withJimengVirtualChannel } from '../../../../../../services/jimengVirtualChannel'
 import type { ConversationState } from '../../../../state/conversationState'
 import { conversationProviderSupportPort } from '../../../../application/ports/providerSupportPort'
 import { resolveCurrentModeModelId } from '../../../../domain/generationMode'
@@ -26,7 +25,7 @@ function resolveSelectedModelId(settings: SingleSideSettings): string {
 }
 
 function resolveChannelForSettings(channels: ApiChannel[], settings: SingleSideSettings): ApiChannel | null {
-  const configuredChannels = withJimengVirtualChannel(channels).filter(isConfiguredChannel)
+  const configuredChannels = channels.filter(isConfiguredChannel)
   if (configuredChannels.length === 0) {
     return null
   }
@@ -88,7 +87,7 @@ export function resolveSendBlockedReason(
   modelCatalog: SendFlowDeps['modelCatalog'],
   activeState: ActiveConversationState,
 ): SendBlockedReason | null {
-  const availableChannels = withJimengVirtualChannel(snapshot.channels)
+  const availableChannels = snapshot.channels
   const targetSides = activeState.activeSideMode === 'single'
     ? (['single'] as Side[])
     : getMultiSideIds(activeState.activeSideCount)
@@ -119,9 +118,7 @@ export function resolveSendBlockedReason(
   }
 
   const missingBoundChannel = selectedSettings.find((settings) => {
-    const channel =
-      availableChannels.find((item) => item.id === settings.channelId)
-      ?? (settings.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
+    const channel = availableChannels.find((item) => item.id === settings.channelId)
     return !channel || !isConfiguredChannel(channel)
   })
   if (missingBoundChannel) {
@@ -133,10 +130,7 @@ export function resolveSendBlockedReason(
   }
 
   const selectedChannels = selectedSettings
-    .map((settings) =>
-      availableChannels.find((item) => item.id === settings.channelId)
-      ?? (settings.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null),
-    )
+    .map((settings) => availableChannels.find((item) => item.id === settings.channelId))
     .filter((channel): channel is ApiChannel => Boolean(channel))
 
   const incompatibleChannel = selectedChannels.find((channel) => {

@@ -6,7 +6,15 @@ import type {
   SideMode,
   SingleSideSettings,
 } from '../../types/conversation'
-import { normalizeImageRuntimeSettings } from '../../utils/imageRuntimeSettings'
+import {
+  clearRemovedProviderStorage,
+  sanitizeAutoRenameModelId,
+  sanitizeFavoriteModelIds,
+  sanitizeSettingsBySide,
+} from '../../utils/legacyRemovedProviderCompat'
+import {
+  normalizeImageRuntimeSettings,
+} from '../../utils/imageRuntimeSettings'
 import { normalizeLoggingSettings } from '../../utils/loggingSettings'
 import { safeReadStorage, safeWriteStorage } from '../../utils/safeStorage'
 import { STORAGE_STAGED_SETTINGS_KEY } from './constants'
@@ -28,6 +36,7 @@ export interface StagedSettingsState {
 }
 
 export function loadStagedSettingsFromStorage(): StagedSettingsState | null {
+  clearRemovedProviderStorage()
   const raw = safeReadStorage(STORAGE_STAGED_SETTINGS_KEY)
   if (!raw) {
     return null
@@ -106,15 +115,15 @@ export function loadStagedSettingsFromStorage(): StagedSettingsState | null {
     return {
       sideMode,
       sideCount,
-      settingsBySide,
+      settingsBySide: sanitizeSettingsBySide(settingsBySide),
       runConcurrency,
       runConcurrencyUnlimited,
       dynamicPromptEnabled,
       autoRenameConversationTitle,
-      autoRenameConversationTitleModelId,
+      autoRenameConversationTitleModelId: sanitizeAutoRenameModelId(autoRenameConversationTitleModelId),
       panelValueFormat,
       panelVariables,
-      favoriteModelIds,
+      favoriteModelIds: sanitizeFavoriteModelIds(favoriteModelIds),
       imageRuntimeSettings,
       loggingSettings,
     }
@@ -124,5 +133,11 @@ export function loadStagedSettingsFromStorage(): StagedSettingsState | null {
 }
 
 export function saveStagedSettingsToStorage(state: StagedSettingsState): void {
-  safeWriteStorage(STORAGE_STAGED_SETTINGS_KEY, JSON.stringify(state))
+  clearRemovedProviderStorage()
+  safeWriteStorage(STORAGE_STAGED_SETTINGS_KEY, JSON.stringify({
+    ...state,
+    settingsBySide: sanitizeSettingsBySide(state.settingsBySide),
+    autoRenameConversationTitleModelId: sanitizeAutoRenameModelId(state.autoRenameConversationTitleModelId),
+    favoriteModelIds: sanitizeFavoriteModelIds(state.favoriteModelIds),
+  }))
 }

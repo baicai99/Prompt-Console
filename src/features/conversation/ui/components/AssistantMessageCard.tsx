@@ -3,6 +3,7 @@ import { DownloadOutlined, ReloadOutlined, SettingOutlined, StopOutlined } from 
 import { Button, Card, Dropdown, Space, Tooltip } from 'antd'
 import type { MenuProps } from 'antd'
 import type { ImageRuntimeSettings, ImageTask, Message, MessageAction, Run, Side } from '../../../../types/conversation'
+import { isRemovedProviderRun } from '../../../../utils/legacyRemovedProviderCompat'
 import { URL_RESPONSE_FORMAT_BATCH_DOWNLOAD_HINT } from '../../domain/batchDownload'
 import { AssistantMarkdown } from './AssistantMarkdown'
 import { AssistantRunList } from './AssistantRunList'
@@ -83,6 +84,7 @@ function AssistantMessageCardComponent({
 
   const assistantActions = primaryRun
     ? (() => {
+        const canReplayPrimaryRun = !isRemovedProviderRun(primaryRun)
         const imagesInMessage = runsForMessage.flatMap((run) => run.images)
         const isAllImagesCompleted = imagesInMessage.length > 0 && imagesInMessage.every(
           (item) => item.status !== 'pending',
@@ -95,60 +97,66 @@ function AssistantMessageCardComponent({
           ),
         )
         const hasFailedImages = runsForMessage.some((run) =>
-          run.images.some((item) => item.status === 'failed'),
+          !isRemovedProviderRun(run) && run.images.some((item) => item.status === 'failed'),
         )
         const hasCancelableImages = runsForMessage.some((run) =>
           run.images.some((item) => item.status === 'pending' && (item.threadState === 'active' || item.threadState === 'detached')),
         )
         const actionMenuItems: MenuProps['items'] = [
-          {
-            key: 'replay',
-            label: '再来一次',
-            disabled: isReplayingPrimaryRun,
-          },
-          {
-            key: 'retry-all-failed',
-            label: '重试所有失败项',
-            disabled: !hasFailedImages || isRetryingMessage,
-          },
+          ...(canReplayPrimaryRun
+            ? [{
+              key: 'replay',
+              label: '再来一次',
+              disabled: isReplayingPrimaryRun,
+            } satisfies NonNullable<MenuProps['items']>[number]]
+            : []),
+          ...(hasFailedImages
+            ? [{
+              key: 'retry-all-failed',
+              label: '重试所有失败项',
+              disabled: isRetryingMessage,
+            } satisfies NonNullable<MenuProps['items']>[number]]
+            : []),
         ]
 
         return (
           <Space size={4} className="message-bottom-actions">
-            <Tooltip title="生成操作">
-              <Dropdown
-                trigger={['click']}
-                menu={{
-                  items: actionMenuItems,
-                  onClick: (info) => {
-                    if (info.key === 'replay') {
-                      triggerAssistantAction(
-                        `message-${message.id}-replay-primary`,
-                        info.domEvent as unknown as React.MouseEvent<HTMLElement>,
-                        () => onReplayRun(primaryRun.id),
-                      )
-                      return
-                    }
-                    if (info.key === 'retry-all-failed') {
-                      triggerAssistantAction(
-                        `message-${message.id}-retry-all-failed`,
-                        info.domEvent as unknown as React.MouseEvent<HTMLElement>,
-                        () => onHandleRetryAllFailed(message.id, runsForMessage),
-                      )
-                    }
-                  },
-                }}
-              >
-                <Button
-                  size="small"
-                  type="default"
-                  className="assistant-action-btn assistant-action-menu-trigger"
-                  icon={<ReloadOutlined />}
-                  aria-label="生成操作"
-                  loading={isRetryingMessage}
-                />
-              </Dropdown>
-            </Tooltip>
+            {actionMenuItems.length > 0 ? (
+              <Tooltip title="生成操作">
+                <Dropdown
+                  trigger={['click']}
+                  menu={{
+                    items: actionMenuItems,
+                    onClick: (info) => {
+                      if (info.key === 'replay') {
+                        triggerAssistantAction(
+                          `message-${message.id}-replay-primary`,
+                          info.domEvent as unknown as React.MouseEvent<HTMLElement>,
+                          () => onReplayRun(primaryRun.id),
+                        )
+                        return
+                      }
+                      if (info.key === 'retry-all-failed') {
+                        triggerAssistantAction(
+                          `message-${message.id}-retry-all-failed`,
+                          info.domEvent as unknown as React.MouseEvent<HTMLElement>,
+                          () => onHandleRetryAllFailed(message.id, runsForMessage),
+                        )
+                      }
+                    },
+                  }}
+                >
+                  <Button
+                    size="small"
+                    type="default"
+                    className="assistant-action-btn assistant-action-menu-trigger"
+                    icon={<ReloadOutlined />}
+                    aria-label="生成操作"
+                    loading={isRetryingMessage}
+                  />
+                </Dropdown>
+              </Tooltip>
+            ) : null}
             <Tooltip title={isBatchDownloadBlocked ? URL_RESPONSE_FORMAT_BATCH_DOWNLOAD_HINT : '下载全部'}>
               <span>
                 <Button

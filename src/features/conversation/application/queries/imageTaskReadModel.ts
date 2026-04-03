@@ -12,7 +12,10 @@ export function buildImageTasksByRunId(input: ImageTasksByRunIdInput): Record<st
       return acc
     }
     const runBucket = acc[task.runId] ?? {}
-    runBucket[task.seq] = task
+    const imageSeqs = Array.isArray(task.imageSeqs) && task.imageSeqs.length > 0 ? task.imageSeqs : [task.seq]
+    imageSeqs.forEach((seq) => {
+      runBucket[seq] = task
+    })
     acc[task.runId] = runBucket
     return acc
   }, {})

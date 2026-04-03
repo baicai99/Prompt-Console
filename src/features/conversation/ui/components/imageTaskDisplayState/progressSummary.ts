@@ -37,7 +37,7 @@ function formatSummaryPart(count: number, label: string): string {
 export function getRunProgressSummary(run: Run, tasksById?: Record<string, ImageTask>): string | null {
   const taskState = ensureRunTaskState(run)
   const taskBySeq = new Map(
-    Object.values(tasksById ?? {}).map((task) => [task.seq, task] as const),
+    Object.entries(tasksById ?? {}).map(([seq, task]) => [Number(seq), task] as const),
   )
   const imageEntries = run.images.map((image) => ({ image, task: taskBySeq.get(image.seq) }))
   const counts = summarizeLifecycleCounts(imageEntries, run)

@@ -3,6 +3,10 @@ import type { ProviderRequestRunner } from '../../../../../../types/provider'
 import type { ConversationState } from '../../../../state/conversationState'
 import type { Conversation, ImageTask, Run } from '../../../../../../types/conversation'
 import { runWithConcurrency } from '../../../../../../utils/runWithConcurrency'
+import {
+  isRemovedProviderRun,
+  REMOVED_PROVIDER_RESUME_ERROR,
+} from '../../../../../../utils/legacyRemovedProviderCompat'
 import { toImageRuntimeMilliseconds } from '../../../../../../utils/imageRuntimeSettings'
 import { toEpoch } from '../helpers'
 import { conversationLoggingPort } from '../../../../application/ports/loggingPort'
@@ -11,6 +15,7 @@ import { conversationWindowLeasePort } from '../../../../application/ports/windo
 import { createResumeUpdateBuffer, type UpdateRunImageInput } from '../../../../application/runtime/resumeUpdateBuffer'
 import { createResumeStateTransitions } from '../../../../application/runtime/resumeStateTransitions'
 import { createImageResultReferenceStore } from '../../../../application/imageResultReferenceStore'
+import { classifyFailure } from '../../../../domain/failureClassifier'
 import {
   buildFairResumableImageQueue as buildFairResumableImageQueueFromQueries,
   findRunMessageId,
@@ -18,6 +23,8 @@ import {
 } from '../../../../application/queries/conversationQueries'
 import {
   buildFailedRunImagePatch,
+  buildPendingRunImagePatch,
+  buildSucceededRunImagePatch,
   logImageTaskLifecycleBoundary,
 } from '../../../../application/taskLifecycle/shared'
 
@@ -37,6 +44,14 @@ export interface ResumeTaskService {
     providerTaskStatus?: string
     serverTaskId?: string
     serverTaskMeta?: Record<string, string>
+    items?: Array<{
+      state: 'pending' | 'failed' | 'success'
+      src?: string
+      error?: string
+      providerTaskStatus?: string
+      serverTaskId?: string
+      serverTaskMeta?: Record<string, string>
+    }>
   }>
   streamTask: (input: {
     channel: NonNullable<ConversationState['channels'][number]>
@@ -52,6 +67,10 @@ export interface ResumeTaskService {
       serverTaskMeta?: Record<string, string>
     }) => void
   }) => Promise<{ state: 'unsupported' | 'aborted' | 'completed' }>
+}
+
+function isBatchResumeEntry(entry: ResumableImageEntry): boolean {
+  return entry.images.length > 1 || Boolean(entry.task.imageSeqs && entry.task.imageSeqs.length > 1)
 }
 
 export interface ProcessPendingImageResumesInput {
@@ -192,6 +211,7 @@ export async function processPendingImageResumes(input: ProcessPendingImageResum
       if (!channel) {
         const attemptedAt = new Date().toISOString()
         releaseWindowLease({ leaseKey, ownerId: resumeOwnerId })
+        const errorMessage = isRemovedProviderRun(entry.run) ? REMOVED_PROVIDER_RESUME_ERROR : '图片生成失败'
         queueRunImageUpdate({
           runId: entry.run.id,
           seq: entry.image.seq,
@@ -199,8 +219,8 @@ export async function processPendingImageResumes(input: ProcessPendingImageResum
             queuedAt: entry.image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
             startedAt: entry.image.startedAt ?? entry.task.startedAt ?? attemptedAt,
             completedAt: attemptedAt,
-            error: '图片生成失败',
-            errorCode: 'unknown',
+            error: errorMessage,
+            errorCode: classifyFailure(errorMessage),
           }),
           lastResumeAttemptAt: attemptedAt,
         })
@@ -230,6 +250,7 @@ export async function processPendingImageResumes(input: ProcessPendingImageResum
         isRunStillActive(conversationId, entry.run.id)
         && isRunOwnedByMessage(conversationId, entry.run.id, messageId)
       )
+      const targetImages = isBatchResumeEntry(entry) ? entry.images : [entry.image]
       const pendingSinceEpoch = toEpoch(
         entry.image.startedAt
         ?? entry.image.queuedAt
@@ -255,17 +276,19 @@ export async function processPendingImageResumes(input: ProcessPendingImageResum
           status: 'timeout',
           reason: 'generating-timeout',
         })
-        queueRunImageUpdate({
-          runId: entry.run.id,
-          seq: entry.image.seq,
-          ...buildFailedRunImagePatch({
-            queuedAt: entry.image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
-            startedAt: entry.image.startedAt ?? entry.task.startedAt ?? attemptedAt,
-            completedAt: attemptedAt,
-            error: '图片生成超时（超过 10 分钟）',
-            errorCode: 'timeout',
-          }),
-          lastResumeAttemptAt: attemptedAt,
+        targetImages.forEach((image) => {
+          queueRunImageUpdate({
+            runId: entry.run.id,
+            seq: image.seq,
+            ...buildFailedRunImagePatch({
+              queuedAt: image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
+              startedAt: image.startedAt ?? entry.task.startedAt ?? attemptedAt,
+              completedAt: attemptedAt,
+              error: '图片生成超时（超过 10 分钟）',
+              errorCode: 'timeout',
+            }),
+            lastResumeAttemptAt: attemptedAt,
+          })
         })
         flushQueuedResumeUpdates()
         unregisterActiveRun(conversationId, entry.run.id)
@@ -290,6 +313,251 @@ export async function processPendingImageResumes(input: ProcessPendingImageResum
           serverTaskMeta: fallbackServerTaskMeta,
         },
       })
+      if (isBatchResumeEntry(entry)) {
+        logImageTaskLifecycleBoundary({ phase: 'start', queueIndex: index, seq: entry.image.seq, context: 'resume' })
+        {
+          queueTaskUpdate({
+            taskId: entry.task.taskId,
+            runId: entry.run.id,
+            seq: entry.image.seq,
+            status: 'polling',
+            threadState: 'active',
+            resumeTransport: 'polling',
+            providerTaskStatus: entry.task.providerTaskStatus,
+            serverTaskId: fallbackServerTaskId,
+            serverTaskMeta: fallbackServerTaskMeta,
+            startedAt: entry.task.startedAt ?? attemptedAt,
+          })
+          targetImages.forEach((image) => {
+            queueRunImageUpdate({
+              runId: entry.run.id,
+              seq: image.seq,
+              ...buildPendingRunImagePatch({
+                queuedAt: image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
+                startedAt: image.startedAt ?? entry.task.startedAt ?? attemptedAt,
+                providerTaskStatus: entry.task.providerTaskStatus,
+                resumeTransport: 'polling',
+                serverTaskId: fallbackServerTaskId,
+                serverTaskMeta: image.serverTaskMeta ?? fallbackServerTaskMeta,
+              }),
+              lastResumeAttemptAt: attemptedAt,
+            })
+          })
+          queueRunTaskStateUpdate({
+            runId: entry.run.id,
+            status: 'generating',
+          })
+          flushQueuedResumeUpdates()
+          emitImageTaskDebug({
+            stage: 'poll_request_started',
+            conversationId,
+            runId: entry.run.id,
+            batchId: entry.run.batchId,
+            taskId: entry.task.taskId,
+            imageId: entry.image.id,
+            seq: entry.image.seq,
+            model: entry.run.modelId,
+            ...getChannelDebugMeta(channel),
+            pollTriggered: true,
+            parsed: {
+              serverTaskId: fallbackServerTaskId,
+              serverTaskMeta: fallbackServerTaskMeta,
+            },
+          })
+          const resumed = await taskResumeService.resumeTask({
+            channel,
+            taskId: fallbackServerTaskId,
+            taskMeta: fallbackServerTaskMeta,
+            signal: controller.signal,
+            runWithRequestLimit,
+          })
+          if (!resumed) {
+            queueTaskUpdate({
+              taskId: entry.task.taskId,
+              runId: entry.run.id,
+              seq: entry.image.seq,
+              status: 'failed',
+              threadState: 'settled',
+              resumeTransport: 'polling',
+              error: '图片生成失败',
+              errorCode: 'unknown',
+              serverTaskId: fallbackServerTaskId,
+              serverTaskMeta: fallbackServerTaskMeta,
+              completedAt: attemptedAt,
+            })
+            queueRunTaskStateUpdate({
+              runId: entry.run.id,
+              status: 'failed',
+              reason: 'resume-failed',
+            })
+            targetImages.forEach((image) => {
+              queueRunImageUpdate({
+                runId: entry.run.id,
+                seq: image.seq,
+                ...buildFailedRunImagePatch({
+                  queuedAt: image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
+                  startedAt: image.startedAt ?? entry.task.startedAt ?? attemptedAt,
+                  completedAt: attemptedAt,
+                  error: '图片生成失败',
+                  errorCode: 'unknown',
+                  resumeTransport: 'polling',
+                  serverTaskId: fallbackServerTaskId,
+                  serverTaskMeta: image.serverTaskMeta ?? fallbackServerTaskMeta,
+                }),
+                lastResumeAttemptAt: attemptedAt,
+              })
+            })
+            flushQueuedResumeUpdates()
+            return
+          }
+          emitImageTaskDebug({
+            stage: 'poll_response_received',
+            conversationId,
+            runId: entry.run.id,
+            batchId: entry.run.batchId,
+            taskId: entry.task.taskId,
+            imageId: entry.image.id,
+            seq: entry.image.seq,
+            model: entry.run.modelId,
+            ...getChannelDebugMeta(channel),
+            state: resumed.state,
+            responseSummary: summarizeProviderPayload(resumed),
+            parsed: {
+              providerTaskStatus: resumed.providerTaskStatus,
+              serverTaskId: resumed.serverTaskId,
+              serverTaskMeta: resumed.serverTaskMeta,
+            },
+          })
+          const resumedItems = Array.isArray(resumed.items) && resumed.items.length > 0
+            ? resumed.items
+            : targetImages.map((image, itemIndex) => ({
+              state: resumed.state,
+              src: itemIndex === 0 ? resumed.src : undefined,
+              error: resumed.state === 'failed' ? resumed.error : undefined,
+              providerTaskStatus: resumed.providerTaskStatus,
+              serverTaskId: resumed.serverTaskId,
+              serverTaskMeta: image.serverTaskMeta,
+            }))
+
+          let anyPending = false
+          let anyFailure = false
+          let allSuccess = true
+          let terminalError = resumed.state === 'failed' ? (resumed.error?.trim() || '图片生成失败') : undefined
+
+          for (let indexInBatch = 0; indexInBatch < targetImages.length; indexInBatch += 1) {
+            const image = targetImages[indexInBatch]
+            const itemIndex = Number(image.serverTaskMeta?.itemIndex ?? image.seq - 1)
+            const resolvedItemIndex = Number.isFinite(itemIndex) ? itemIndex : indexInBatch
+            const resumedItem = resumedItems[resolvedItemIndex]
+            const fallbackMeta = image.serverTaskMeta ?? fallbackServerTaskMeta
+            if (resumedItem?.state === 'success' && resumedItem.src) {
+              const persisted = await imageResultReferenceStore.persistImageResultSource(resumedItem.src, {
+                traceId: entry.run.id,
+                seq: image.seq,
+              })
+              queueRunImageUpdate({
+                runId: entry.run.id,
+                seq: image.seq,
+                ...buildSucceededRunImagePatch({
+                  queuedAt: image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
+                  startedAt: image.startedAt ?? entry.task.startedAt ?? attemptedAt,
+                  completedAt: attemptedAt,
+                  resumeTransport: 'polling',
+                  fileRef: persisted.fileRef,
+                  thumbRef: persisted.thumbRef,
+                  fullRef: persisted.fullRef,
+                  refKind: persisted.refKind,
+                  refKey: persisted.refKey,
+                  bytes: persisted.bytes,
+                  serverTaskId: resumedItem.serverTaskId ?? resumed.serverTaskId ?? fallbackServerTaskId,
+                  serverTaskMeta: resumedItem.serverTaskMeta ?? fallbackMeta,
+                }),
+                lastResumeAttemptAt: attemptedAt,
+              })
+              continue
+            }
+
+            allSuccess = false
+            if (resumedItem?.state === 'failed') {
+              anyFailure = true
+              terminalError = resumedItem.error?.trim() || terminalError || '图片生成失败'
+              queueRunImageUpdate({
+                runId: entry.run.id,
+                seq: image.seq,
+                ...buildFailedRunImagePatch({
+                  queuedAt: image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
+                  startedAt: image.startedAt ?? entry.task.startedAt ?? attemptedAt,
+                  completedAt: attemptedAt,
+                  error: resumedItem.error?.trim() || '图片生成失败',
+                  errorCode: classifyFailure(resumedItem.error?.trim() || '图片生成失败'),
+                  resumeTransport: 'polling',
+                  serverTaskId: resumedItem.serverTaskId ?? resumed.serverTaskId ?? fallbackServerTaskId,
+                  serverTaskMeta: resumedItem.serverTaskMeta ?? fallbackMeta,
+                }),
+                lastResumeAttemptAt: attemptedAt,
+              })
+              continue
+            }
+
+            anyPending = true
+            queueRunImageUpdate({
+              runId: entry.run.id,
+              seq: image.seq,
+              ...buildPendingRunImagePatch({
+                queuedAt: image.queuedAt ?? entry.task.queuedAt ?? attemptedAt,
+                startedAt: image.startedAt ?? entry.task.startedAt ?? attemptedAt,
+                providerTaskStatus: resumedItem?.providerTaskStatus ?? resumed.providerTaskStatus,
+                resumeTransport: 'polling',
+                serverTaskId: resumedItem?.serverTaskId ?? resumed.serverTaskId ?? fallbackServerTaskId,
+                serverTaskMeta: resumedItem?.serverTaskMeta ?? fallbackMeta,
+              }),
+              lastResumeAttemptAt: attemptedAt,
+            })
+          }
+
+          if (anyPending) {
+            queueTaskUpdate({
+              taskId: entry.task.taskId,
+              runId: entry.run.id,
+              seq: entry.image.seq,
+              status: 'polling',
+              threadState: 'active',
+              resumeTransport: 'polling',
+              providerTaskStatus: resumed.providerTaskStatus,
+              serverTaskId: resumed.serverTaskId ?? fallbackServerTaskId,
+              serverTaskMeta: resumed.serverTaskMeta ?? fallbackServerTaskMeta,
+              startedAt: entry.task.startedAt ?? attemptedAt,
+            })
+            queueRunTaskStateUpdate({
+              runId: entry.run.id,
+              status: 'generating',
+            })
+            flushQueuedResumeUpdates()
+            return
+          }
+
+          queueTaskUpdate({
+            taskId: entry.task.taskId,
+            runId: entry.run.id,
+            seq: entry.image.seq,
+            status: allSuccess ? 'succeeded' : 'failed',
+            threadState: 'settled',
+            resumeTransport: 'polling',
+            serverTaskId: resumed.serverTaskId ?? fallbackServerTaskId,
+            serverTaskMeta: resumed.serverTaskMeta ?? fallbackServerTaskMeta,
+            error: allSuccess ? undefined : terminalError,
+            errorCode: allSuccess ? undefined : classifyFailure(terminalError ?? '图片生成失败'),
+            completedAt: attemptedAt,
+          })
+          queueRunTaskStateUpdate({
+            runId: entry.run.id,
+            status: allSuccess ? 'completed' : (anyFailure ? 'failed' : 'completed'),
+            reason: allSuccess ? undefined : 'resume-failed',
+          })
+          flushQueuedResumeUpdates()
+          return
+        }
+      }
       const { applyPendingState, applyFailedState, applySuccessState } = createResumeStateTransitions({
         conversationId,
         entry,

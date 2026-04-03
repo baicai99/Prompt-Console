@@ -1,6 +1,7 @@
 import { CopyOutlined, RetweetOutlined } from '@ant-design/icons'
 import { Button, Collapse, Space, Typography } from 'antd'
 import type { ImageTask, Run } from '../../../../types/conversation'
+import { isRemovedProviderRun } from '../../../../utils/legacyRemovedProviderCompat'
 import {
   copyRunFailureReport,
   copyRunPromptContent,
@@ -22,10 +23,10 @@ const { Text } = Typography
 
 function getRunTransportSummary(run: Run, tasksById?: Record<string, ImageTask>): string | null {
   const transportBySeq = new Map<number, string>()
-  for (const task of Object.values(tasksById ?? {})) {
+  for (const [seq, task] of Object.entries(tasksById ?? {})) {
     const label = getResumeTransportLabel(task)
     if (label) {
-      transportBySeq.set(task.seq, label)
+      transportBySeq.set(Number(seq), label)
     }
   }
   for (const image of run.images) {
@@ -79,6 +80,7 @@ export function renderRunCard(
   const progressSummary = getRunProgressSummary(run, tasksById)
   const failureDetails = getFailureDetails(run)
   const hasFailed = run.images.some((item) => item.status === 'failed')
+  const canRetryRun = hasFailed && !isRemovedProviderRun(run)
   const promptText = run.finalPrompt.trim()
   const promptSummary = summarizeRunPrompt(promptText)
   const taskState = ensureRunTaskState(run)
@@ -221,17 +223,19 @@ export function renderRunCard(
           ) : null}
           {hasFailed ? (
             <Space size={8} wrap>
-              <Button
-                size="small"
-                type="dashed"
-                icon={<RetweetOutlined />}
-                className="assistant-action-btn"
-                onClick={(event) => {
-                  onAssistantActionTrigger?.(`run-${run.id}-retry-failed`, event, () => onRetryRun(run.id))
-                }}
-              >
-                重试失败项
-              </Button>
+              {canRetryRun ? (
+                <Button
+                  size="small"
+                  type="dashed"
+                  icon={<RetweetOutlined />}
+                  className="assistant-action-btn"
+                  onClick={(event) => {
+                    onAssistantActionTrigger?.(`run-${run.id}-retry-failed`, event, () => onRetryRun(run.id))
+                  }}
+                >
+                  重试失败项
+                </Button>
+              ) : null}
               <Button
                 size="small"
                 type="default"

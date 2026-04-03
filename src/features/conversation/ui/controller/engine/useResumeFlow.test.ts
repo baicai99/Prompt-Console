@@ -98,6 +98,108 @@ function withTaskPool(conversation: Conversation): Conversation {
   }
 }
 
+function createLegacyRemovedProviderConversation(): Conversation {
+  const run: Run = {
+    id: 'run-jimeng',
+    batchId: 'batch-jimeng',
+    createdAt: new Date(Date.now() - 10_000).toISOString(),
+    sideMode: 'single',
+    side: 'single',
+    prompt: 'prompt',
+    imageCount: 4,
+    channelId: '__jimeng-proxy__',
+    channelName: '即梦本地代理',
+    modelId: '__jimeng-proxy__::model',
+    modelName: '即梦图片',
+    templatePrompt: 'prompt',
+    finalPrompt: 'prompt',
+    variablesSnapshot: {},
+    paramsSnapshot: {},
+    sourceImages: [],
+    settingsSnapshot: {
+      resolution: '2K',
+      aspectRatio: '1:1',
+      imageCount: 4,
+      gridColumns: 4,
+      sizeMode: 'preset',
+      customWidth: 1024,
+      customHeight: 1024,
+      autoSave: false,
+    },
+    retryAttempt: 0,
+    taskIds: ['task-jimeng', 'task-jimeng', 'task-jimeng', 'task-jimeng'],
+    images: Array.from({ length: 4 }, (_, index) => ({
+      id: `img-jimeng-${index + 1}`,
+      seq: index + 1,
+      status: 'pending' as const,
+      threadState: 'active' as const,
+      serverTaskId: 'history-1',
+      serverTaskMeta: {
+        historyId: 'history-1',
+        resolutionType: '2k',
+        itemIndex: String(index),
+      },
+    })),
+  }
+
+  return {
+      id: 'conv-legacy',
+      title: 'Legacy',
+    titleMode: 'default',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    sideMode: 'single',
+    sideCount: 1,
+    settingsBySide: {
+      single: {
+        generationMode: 'image',
+        resolution: '2K',
+        aspectRatio: '1:1',
+        imageCount: 4,
+        gridColumns: 4,
+        sizeMode: 'preset',
+        customWidth: 1024,
+        customHeight: 1024,
+        autoSave: false,
+        channelId: '__jimeng-proxy__',
+        modelId: '__jimeng-proxy__::model',
+        textModelId: '__jimeng-proxy__::model',
+        videoModelId: '__jimeng-proxy__::model',
+        paramValues: {},
+      },
+    },
+    messages: [{
+      id: 'msg-jimeng',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      role: 'assistant',
+      content: '',
+      taskIds: ['task-jimeng'],
+      runs: [run],
+    }],
+    tasksById: {
+      'task-jimeng': {
+        taskId: 'task-jimeng',
+        runId: run.id,
+        batchId: run.batchId,
+        side: run.side,
+        seq: 1,
+        imageSeqs: [1, 2, 3, 4],
+        finalPrompt: run.finalPrompt,
+        status: 'polling',
+        createdAt: run.createdAt,
+        queuedAt: run.createdAt,
+        startedAt: run.createdAt,
+        threadState: 'active',
+        serverTaskId: 'history-1',
+        serverTaskMeta: {
+          historyId: 'history-1',
+          resolutionType: '2k',
+        },
+      },
+    },
+  }
+}
+
 function createSnapshot(conversation: Conversation): ConversationState {
   return {
     summaries: [],
@@ -322,6 +424,41 @@ describe('processPendingImageResumes', () => {
       expect(input.startedAt).toBeTruthy()
       expect(input.completedAt).toBeTruthy()
     })
+  })
+
+  it('marks legacy removed-provider tasks as failed when the channel no longer exists', async () => {
+    const conversation = createLegacyRemovedProviderConversation()
+    const snapshot = createSnapshot(conversation)
+    snapshot.channels = []
+    const activeRunRegistry = createActiveRunRegistry()
+    const resumeTask = vi.fn()
+    const updateImageTaskInConversation = vi.fn()
+    const updateRunImageInConversation = vi.fn()
+
+    await processPendingImageResumes({
+      conversationId: conversation.id,
+      snapshot,
+      requestedConcurrency: 4,
+      resumeOwnerId: 'window-a',
+      resumingImageIdsRef: { current: new Set<string>() },
+      taskResumeService: {
+        resumeTask,
+        streamTask: vi.fn().mockResolvedValue({ state: 'unsupported' as const }),
+      },
+      ...activeRunRegistry,
+      updateImageTaskInConversation,
+      updateRunImageInConversation,
+      updateRunTaskStateInConversation: vi.fn(),
+    })
+
+    expect(resumeTask).not.toHaveBeenCalled()
+    expect(updateImageTaskInConversation).not.toHaveBeenCalled()
+    expect(updateRunImageInConversation).toHaveBeenCalledWith(conversation.id, expect.objectContaining({
+      runId: 'run-jimeng',
+      seq: 1,
+      status: 'failed',
+      error: '即梦已移除，无法恢复该任务。',
+    }))
   })
 
   it('starts resume work from the global task pool order', async () => {

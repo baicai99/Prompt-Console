@@ -68,7 +68,6 @@ function runNamedProcess(name, args) {
 }
 
 runNamedProcess('web', ['run', 'dev'])
-runNamedProcess('jimeng', ['run', 'jimeng:bff'])
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.on(signal, () => {

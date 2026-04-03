@@ -2,7 +2,6 @@ import type { Run, SettingPrimitive, Side, SideMode, SingleSideSettings } from '
 import type { ApiChannel } from '../../../types/channel'
 import type { RunSourceImageRef } from '../../../types/image'
 import type { ModelCatalog } from '../../../types/model'
-import { buildJimengVirtualChannel, JIMENG_VIRTUAL_CHANNEL_ID } from '../../../services/jimengVirtualChannel'
 import { makeId, toSettingsSnapshot } from '../../../utils/chat'
 import { createRunTaskState } from './runTaskState'
 import { getDefaultModel, getModelById, normalizeParamValues } from './modelCatalogDomain'
@@ -32,7 +31,6 @@ export function createPlannedRuns(input: {
         size: getEffectiveSize(settings),
       }
       const channel = input.channels.find((item) => item.id === settings.channelId)
-        ?? (settings.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() ?? undefined : undefined)
       const imageCount = Math.max(1, Math.floor(settings.imageCount))
       const createdAt = new Date().toISOString()
 

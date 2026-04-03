@@ -104,7 +104,7 @@ export function useResolvedImagePreview(input: {
       return
     }
 
-    if (!sourceChanged && !enabledChanged && currentSrcRef.current && !currentErrorRef.current) {
+    if (!sourceChanged && !enabledChanged && (src || currentSrcRef.current) && !(error || currentErrorRef.current)) {
       return
     }
 
@@ -226,7 +226,7 @@ export function useResolvedImagePreview(input: {
       })
       cleanup?.()
     }
-  }, [directSrc, enabled, priority, resolveImagePreviewSource, retryToken, source, sourceIdentity])
+  }, [directSrc, enabled, error, priority, resolveImagePreviewSource, retryToken, source, sourceIdentity, src])
 
   const isLoading = enabled && !directSrc && source?.refKind === 'idb-blob' && Boolean(source.refKey?.trim()) && !src && !error
   const hasSource = Boolean(source?.src?.trim() || source?.refKey?.trim())

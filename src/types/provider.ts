@@ -1,6 +1,6 @@
 import type { SettingPrimitive } from './primitives'
 
-export type ProviderId = 'openai-compatible' | 'midjourney-proxy' | 'jimeng-proxy' | 'custom' | (string & {})
+export type ProviderId = 'openai-compatible' | 'midjourney-proxy' | 'custom' | (string & {})
 
 export type ProviderErrorCode =
   | 'auth'
@@ -112,12 +112,21 @@ export interface NormalizedImageResult {
   items: NormalizedImageItem[]
 }
 
+export interface NormalizedResumeItem {
+  state: 'pending' | 'success' | 'failed'
+  src?: string
+  error?: string
+  providerTaskStatus?: string
+  serverTaskId?: string
+  serverTaskMeta?: Record<string, string>
+}
+
 export type ProviderRequestRunner = <T>(fn: () => Promise<T>) => Promise<T>
 
 export type NormalizedResumeResult =
-  | { state: 'success'; src: string; serverTaskId?: string; serverTaskMeta?: Record<string, string> }
-  | { state: 'pending'; providerTaskStatus?: string; serverTaskId?: string; serverTaskMeta?: Record<string, string> }
-  | { state: 'failed'; error?: string; providerTaskStatus?: string; serverTaskId?: string; serverTaskMeta?: Record<string, string> }
+  | { state: 'success'; src: string; serverTaskId?: string; serverTaskMeta?: Record<string, string>; items?: NormalizedResumeItem[] }
+  | { state: 'pending'; providerTaskStatus?: string; serverTaskId?: string; serverTaskMeta?: Record<string, string>; items?: NormalizedResumeItem[] }
+  | { state: 'failed'; error?: string; providerTaskStatus?: string; serverTaskId?: string; serverTaskMeta?: Record<string, string>; items?: NormalizedResumeItem[] }
 
 export type ImageTaskStreamEvent =
   | { state: 'pending'; providerTaskStatus?: string; serverTaskId?: string; serverTaskMeta?: Record<string, string> }

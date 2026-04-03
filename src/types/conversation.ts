@@ -128,6 +128,7 @@ export interface ImageTask {
   batchId: string
   side: Side
   seq: number
+  imageSeqs?: number[]
   finalPrompt: string
   status: ImageTaskStatus
   createdAt: string

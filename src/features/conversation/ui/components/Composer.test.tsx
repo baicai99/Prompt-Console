@@ -826,7 +826,6 @@ describe('Composer panel value format', () => {
   })
 
   it('renders toolbar controls and opens quick actions from the toolbar button', async () => {
-    const user = userEvent.setup()
     const { container } = renderComposer('json')
 
     const toolbar = container.querySelector('.composer-toolbar') as HTMLElement
@@ -834,7 +833,7 @@ describe('Composer panel value format', () => {
     expect(within(toolbar).getByRole('button', { name: '上传参考图' })).toBeInTheDocument()
     expect(within(toolbar).getByRole('button', { name: '发送' })).toBeInTheDocument()
 
-    await user.click(within(toolbar).getByRole('button', { name: '快捷功能' }))
+    fireEvent.mouseDown(within(toolbar).getByRole('button', { name: '快捷功能' }))
 
     expect(screen.getByRole('listbox', { name: '快捷功能选择' })).toBeInTheDocument()
   })

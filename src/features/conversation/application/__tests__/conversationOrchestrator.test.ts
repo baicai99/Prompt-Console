@@ -6,6 +6,13 @@ function makePlan(input: {
   side?: 'single' | 'win-1' | 'win-2'
   sideMode?: 'single' | 'multi'
   imageCount?: number
+  channel?: {
+    id: string
+    name: string
+    baseUrl: string
+    apiKey: string
+    providerId?: string
+  }
 }) {
   const pendingRun = {
     id: input.id,
@@ -57,7 +64,7 @@ function makePlan(input: {
     modelId: 'm',
     modelName: 'm',
     paramsSnapshot: {},
-    channel: undefined,
+    channel: input.channel,
     pendingRunId: input.id,
     pendingCreatedAt: 't',
     pendingRun,
@@ -77,6 +84,22 @@ function makeTasks(plan: ReturnType<typeof makePlan>) {
     queuedAt: 't',
     threadState: 'active' as const,
   }))
+}
+
+function makeBatchTask(plan: ReturnType<typeof makePlan>) {
+  return [{
+    taskId: `${plan.pendingRun.id}-task-batch`,
+    runId: plan.pendingRun.id,
+    batchId: plan.batchId,
+    side: plan.side,
+    seq: 1,
+    imageSeqs: plan.pendingRun.images.map((image) => image.seq),
+    finalPrompt: plan.finalPrompt,
+    status: 'queued' as const,
+    createdAt: 't',
+    queuedAt: 't',
+    threadState: 'active' as const,
+  }]
 }
 
 function makeSingleImageRun(input: {
@@ -182,6 +205,53 @@ describe('conversationOrchestrator', () => {
     expect(activeBySide.get('win-2')).toBe(0)
     expect(completed[0]?.images).toHaveLength(3)
     expect(completed[1]?.images).toHaveLength(3)
+  })
+
+  it('submits Jimeng batch runs once with the full fixed image count', async () => {
+    const createRun = vi.fn().mockImplementation(async (input: { runId: string; settings: { imageCount: number } }) => ({
+      ...makeSingleImageRun({ runId: input.runId }),
+      imageCount: input.settings.imageCount,
+      settingsSnapshot: {
+        resolution: '1K',
+        aspectRatio: '1:1',
+        imageCount: input.settings.imageCount,
+        gridColumns: 4,
+        sizeMode: 'preset' as const,
+        customWidth: 1024,
+        customHeight: 1024,
+        autoSave: true,
+      },
+      images: Array.from({ length: input.settings.imageCount }, (_, index) => ({
+        id: `${input.runId}-img-${index + 1}`,
+        seq: index + 1,
+        status: 'success' as const,
+        threadState: 'settled' as const,
+        fileRef: `${input.runId}-${index + 1}.png`,
+        refKind: 'url' as const,
+        refKey: `${input.runId}-${index + 1}.png`,
+      })),
+    }))
+
+    const orchestrator = createConversationOrchestrator({ createRun })
+    const plan = makePlan({
+      id: 'run-4',
+      imageCount: 4,
+      channel: {
+        id: 'main',
+        name: 'Main',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'key',
+        providerId: 'openai-compatible',
+      },
+    })
+    const completed = await orchestrator.executeRunPlans([plan], makeBatchTask(plan), 1)
+
+    expect(createRun).toHaveBeenCalledTimes(1)
+    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({
+      runId: 'run-4',
+      settings: expect.objectContaining({ imageCount: 4 }),
+    }))
+    expect(completed[0]?.images).toHaveLength(4)
   })
 
   it('keeps async provider registrations in polling state instead of marking them failed', async () => {

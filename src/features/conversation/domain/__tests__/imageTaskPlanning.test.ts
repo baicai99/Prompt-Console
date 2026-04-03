@@ -7,6 +7,7 @@ function createPlan(input: {
   runId: string
   side?: 'single' | 'win-1' | 'win-2'
   imageCount: number
+  channel?: PlannedRun['channel']
 }): PlannedRun {
   const pendingRun: Run = {
     id: input.runId,
@@ -66,7 +67,7 @@ function createPlan(input: {
     modelName: 'Model 1',
     paramsSnapshot: {},
     sourceImages: [],
-    channel: undefined,
+    channel: input.channel,
     pendingRun,
   }
 }
@@ -94,5 +95,27 @@ describe('buildImageTasksForPlannedRuns', () => {
       'run-3:2',
     ])
     expect(plans.map((plan) => (plan.pendingRun.taskIds ?? []).length)).toEqual([4, 4, 2])
+  })
+
+  it('creates one queued task per image for multi-image runs', () => {
+    const plans = [
+      createPlan({
+        runId: 'run-4',
+        imageCount: 4,
+        channel: {
+          id: 'openai',
+          name: 'OpenAI',
+          baseUrl: 'https://api.example.com/v1',
+          apiKey: 'key',
+          providerId: 'openai-compatible',
+        },
+      }),
+    ]
+
+    const tasks = buildImageTasksForPlannedRuns(plans)
+
+    expect(tasks.map((task) => task.seq)).toEqual([1, 2, 3, 4])
+    expect(tasks.every((task) => task.runId === 'run-4')).toBe(true)
+    expect(plans[0]?.pendingRun.taskIds).toEqual(tasks.map((task) => task.taskId))
   })
 })

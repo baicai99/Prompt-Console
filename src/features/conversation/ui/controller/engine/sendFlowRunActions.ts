@@ -10,6 +10,7 @@ import type {
 } from '../../../../../types/conversation'
 import type { ModelCatalog } from '../../../../../types/model'
 import { makeId } from '../../../../../utils/chat'
+import { isRemovedProviderRun } from '../../../../../utils/legacyRemovedProviderCompat'
 import { buildRunAttemptFromRun, replaceOrAppendRunAttempt } from '../../../domain/runAttempts'
 import { createRunTaskState } from '../../../domain/runTaskState'
 import { isAbortLikeError } from './helpers'
@@ -94,7 +95,7 @@ export function createSendFlowRunActions(deps: SendFlowRunActionsDeps) {
     }
 
     const sourceRun = findRunInConversation(currentActive, runId)
-    if (!sourceRun) {
+    if (!sourceRun || isRemovedProviderRun(sourceRun)) {
       return
     }
 
@@ -212,7 +213,7 @@ export function createSendFlowRunActions(deps: SendFlowRunActionsDeps) {
     }
 
     const sourceRun = findRunInConversation(currentActive, runId)
-    if (!sourceRun) {
+    if (!sourceRun || isRemovedProviderRun(sourceRun)) {
       return
     }
 

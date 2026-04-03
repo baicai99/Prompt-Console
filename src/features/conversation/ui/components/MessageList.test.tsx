@@ -1448,6 +1448,42 @@ describe('MessageList', () => {
     })
   })
 
+  it('hides replay and retry actions for legacy removed-provider runs', async () => {
+    const user = userEvent.setup()
+    const conversation = makeConversation()
+    const legacyRun = {
+      ...conversation.messages[0]!.runs![0]!,
+      channelId: '__jimeng-proxy__',
+      channelName: '即梦本地代理',
+      modelId: '__jimeng-proxy__::legacy-model',
+      modelName: '即梦图片',
+    }
+
+    render(
+      <div style={{ height: 600 }}>
+        <MessageList
+          activeConversation={{
+            ...conversation,
+            messages: [{
+              ...conversation.messages[0]!,
+              runs: [legacyRun],
+            }],
+          }}
+          sideView="single"
+          onOpenPreview={() => {}}
+          onRetryRun={() => {}}
+          onReplayRun={() => {}}
+        />
+      </div>,
+    )
+
+    expect(screen.queryByRole('button', { name: /重试失败项/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /生成操作/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /复制报错与参数/ })).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+  })
+
   it('shows copy failure button beside retry button for failed run', () => {
     render(
       <div style={{ height: 600 }}>

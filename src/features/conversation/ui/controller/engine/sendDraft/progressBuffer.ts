@@ -94,7 +94,7 @@ export function createQueuedTaskUpdateBuffer(input: CreateQueuedTaskUpdateBuffer
 
   return {
     queueProgress(progress: QueuedTaskProgress) {
-      queuedProgressByTaskId.set(progress.taskId, progress)
+      queuedProgressByTaskId.set(`${progress.taskId}:${progress.seq}`, progress)
       schedule()
     },
     queueState(progress: QueuedTaskState) {

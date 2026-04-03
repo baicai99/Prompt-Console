@@ -9,8 +9,8 @@ import type {
 import type { ApiChannel } from '../../../types/channel'
 import type { RunSourceImageRef } from '../../../types/image'
 import type { ModelCatalog } from '../../../types/model'
-import { buildJimengVirtualChannel, JIMENG_VIRTUAL_CHANNEL_ID } from '../../../services/jimengVirtualChannel'
 import { makeId } from '../../../utils/chat'
+import { isRemovedProviderRun } from '../../../utils/legacyRemovedProviderCompat'
 import {
   getDefaultModel,
   getModelById,
@@ -24,6 +24,12 @@ import { clampSideCount, getMultiSideIds, normalizeSettingsBySide } from './sett
 import { normalizeSizeTier } from './sizeResolution'
 
 const ASPECT_RATIO_DEFAULT = '1:1'
+
+function resolvePlannedImageCount(input: {
+  requestedCount: number | undefined
+}): number {
+  return Math.max(1, Math.floor(input.requestedCount ?? 1))
+}
 
 export type { PlannedRun, SendDraftPlan, SendDraftPlanResult } from './runPlanningTypes'
 
@@ -133,7 +139,7 @@ export function buildRetryPlan(input: {
 
   const allRuns = activeConversation.messages.flatMap((message) => message.runs ?? [])
   const sourceRun = allRuns.find((item) => item.id === runId)
-  if (!sourceRun) {
+  if (!sourceRun || isRemovedProviderRun(sourceRun)) {
     return null
   }
 
@@ -149,7 +155,7 @@ export function buildRetryPlan(input: {
     generationMode: 'image',
     resolution: normalizeSizeTier(sourceRun.settingsSnapshot?.resolution),
     aspectRatio: sourceRun.settingsSnapshot?.aspectRatio ?? ASPECT_RATIO_DEFAULT,
-    imageCount: sourceRun.settingsSnapshot?.imageCount ?? sourceRun.imageCount,
+    imageCount: 1,
     gridColumns: sourceRun.settingsSnapshot?.gridColumns ?? 4,
     sizeMode: sourceRun.settingsSnapshot?.sizeMode ?? 'preset',
     customWidth: sourceRun.settingsSnapshot?.customWidth ?? 1024,
@@ -169,7 +175,9 @@ export function buildRetryPlan(input: {
 
   const model = getModelById(modelCatalog, sourceRun.modelId) ?? getDefaultModel(modelCatalog)
   const channel = channels.find((item) => item.id === sourceRun.channelId)
-    ?? (sourceRun.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
+  const imageCount = resolvePlannedImageCount({
+    requestedCount: sourceRun.settingsSnapshot?.imageCount ?? sourceRun.imageCount,
+  })
   const fallbackChannel = sourceRun.channelName
     ? { id: sourceRun.channelId ?? makeId(), name: sourceRun.channelName, baseUrl: '', apiKey: '' }
     : undefined
@@ -178,7 +186,10 @@ export function buildRetryPlan(input: {
     sourceRun,
     rootRunId,
     nextRetryAttempt: maxRetryAttempt + 1,
-    settings,
+    settings: {
+      ...settings,
+      imageCount,
+    },
     modelId: model?.id ?? sourceRun.modelId,
     modelName: model?.name ?? sourceRun.modelName,
     paramsSnapshot: { ...sourceRun.paramsSnapshot },
@@ -200,7 +211,7 @@ export function buildReplayPlan(input: {
 
   const allRuns = activeConversation.messages.flatMap((message) => message.runs ?? [])
   const sourceRun = allRuns.find((item) => item.id === runId)
-  if (!sourceRun) {
+  if (!sourceRun || isRemovedProviderRun(sourceRun)) {
     return null
   }
 
@@ -208,7 +219,7 @@ export function buildReplayPlan(input: {
     generationMode: 'image',
     resolution: normalizeSizeTier(sourceRun.settingsSnapshot?.resolution),
     aspectRatio: sourceRun.settingsSnapshot?.aspectRatio ?? ASPECT_RATIO_DEFAULT,
-    imageCount: sourceRun.settingsSnapshot?.imageCount ?? sourceRun.imageCount,
+    imageCount: 1,
     gridColumns: sourceRun.settingsSnapshot?.gridColumns ?? 4,
     sizeMode: sourceRun.settingsSnapshot?.sizeMode ?? 'preset',
     customWidth: sourceRun.settingsSnapshot?.customWidth ?? 1024,
@@ -228,7 +239,9 @@ export function buildReplayPlan(input: {
 
   const model = getModelById(modelCatalog, sourceRun.modelId) ?? getDefaultModel(modelCatalog)
   const channel = channels.find((item) => item.id === sourceRun.channelId)
-    ?? (sourceRun.channelId === JIMENG_VIRTUAL_CHANNEL_ID ? buildJimengVirtualChannel() : null)
+  const imageCount = resolvePlannedImageCount({
+    requestedCount: sourceRun.settingsSnapshot?.imageCount ?? sourceRun.imageCount,
+  })
   const fallbackChannel = sourceRun.channelName
     ? { id: sourceRun.channelId ?? makeId(), name: sourceRun.channelName, baseUrl: '', apiKey: '' }
     : undefined
@@ -236,7 +249,10 @@ export function buildReplayPlan(input: {
   return {
     sourceRun,
     batchId: makeId(),
-    settings,
+    settings: {
+      ...settings,
+      imageCount,
+    },
     modelId: model?.id ?? sourceRun.modelId,
     modelName: model?.name ?? sourceRun.modelName,
     paramsSnapshot: { ...sourceRun.paramsSnapshot },

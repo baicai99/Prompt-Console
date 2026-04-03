@@ -25,7 +25,7 @@ function createImageSettings(channelId: string, modelId: string): SingleSideSett
 }
 
 describe('sendDraft preflight', () => {
-  it('does not block sends for a configured Jimeng virtual channel', () => {
+  it('does not block sends for a configured channel with a selected model', () => {
     const state: ConversationState = {
       summaries: [],
       contents: {},
@@ -48,16 +48,16 @@ describe('sendDraft preflight', () => {
       stagedSideMode: 'single',
       stagedSideCount: 1,
       stagedSettingsBySide: {
-        single: createImageSettings('__jimeng-proxy__', '__jimeng-proxy__::high_aes_general_v50'),
+        single: createImageSettings('openai', 'openai::gpt-image-1'),
       },
       channels: [
         {
-          id: '__jimeng-proxy__',
-          name: '即梦本地代理',
-          baseUrl: 'http://127.0.0.1:8787',
-          apiKey: 'local-session',
-          providerId: 'jimeng-proxy',
-          models: ['high_aes_general_v50'],
+          id: 'openai',
+          name: 'OpenAI',
+          baseUrl: 'https://api.openai.com/v1',
+          apiKey: 'key',
+          providerId: 'openai-compatible',
+          models: ['gpt-image-1'],
         },
       ],
     }
@@ -65,12 +65,12 @@ describe('sendDraft preflight', () => {
     const modelCatalog: ModelCatalog = {
       models: [
         {
-          id: '__jimeng-proxy__::high_aes_general_v50',
-          rawId: 'high_aes_general_v50',
-          name: '图片5.0 Lite（即梦图片）',
-          channelId: '__jimeng-proxy__',
-          sourceName: '即梦图片',
-          tags: ['jimeng-proxy', '即梦'],
+          id: 'openai::gpt-image-1',
+          rawId: 'gpt-image-1',
+          name: 'gpt-image-1（OpenAI）',
+          channelId: 'openai',
+          sourceName: 'OpenAI',
+          tags: ['openai-compatible'],
           params: [],
         },
       ],

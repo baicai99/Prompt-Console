@@ -1,5 +1,6 @@
 import { Alert, Button, Card, Descriptions, Empty, Flex, Tabs, Tag, Typography } from 'antd'
 import type { SettingPrimitive } from '../../../../../types/conversation'
+import { isRemovedProviderRun } from '../../../../../utils/legacyRemovedProviderCompat'
 import { getRunRequestAddress } from '../messageListUtils'
 import type { PreviewCompareMode } from '../../../../../hooks/useImagePreview'
 import type { PreviewABDetail, PreviewDetail, PreviewDetailEntry } from './previewTypes'
@@ -114,6 +115,8 @@ function EntryActions(input: {
   onReusePrompt?: (entry: PreviewDetailEntry) => void
   onReplayRun?: (entry: PreviewDetailEntry) => void
 }) {
+  const canReplayRun = !isRemovedProviderRun(input.entry.run)
+
   return (
     <Flex wrap gap={8}>
       {input.onCopyPrompt ? (
@@ -131,7 +134,7 @@ function EntryActions(input: {
           回填到草稿
         </Button>
       ) : null}
-      {input.onReplayRun ? (
+      {input.onReplayRun && canReplayRun ? (
         <Button size="small" onClick={() => input.onReplayRun?.(input.entry)}>
           再来一次
         </Button>

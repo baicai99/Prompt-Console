@@ -79,6 +79,7 @@ interface RunExecution {
   plan: RunPlanExecution
   run: Run
   completedTasks: number
+  totalTasks: number
   started: boolean
   settled: boolean
 }
@@ -90,6 +91,34 @@ function getRunImageTiming(run: Run, seq: number): Pick<Run['images'][number], '
     startedAt: image?.startedAt,
     completedAt: image?.completedAt,
   }
+}
+
+function getTaskImageSeqs(task: ImageTask): number[] {
+  return Array.isArray(task.imageSeqs) && task.imageSeqs.length > 0 ? task.imageSeqs : [task.seq]
+}
+
+function patchRunImages(
+  run: Run,
+  seqs: number[],
+  patch: Partial<Run['images'][number]>,
+): Run {
+  return seqs.reduce((current, seq) => patchRunImage(current, seq, patch), run)
+}
+
+function resolveTaskStateFromImages(images: Run['images']): TaskExecutionState {
+  if (images.length === 0) {
+    return 'failed'
+  }
+  if (images.some((image) => image.status === 'pending')) {
+    return 'polling'
+  }
+  if (images.every((image) => image.status === 'success')) {
+    return 'succeeded'
+  }
+  if (images.every((image) => image.status === 'failed' && image.errorCode === 'timeout')) {
+    return 'timeout'
+  }
+  return 'failed'
 }
 
 function normalizeRequestedConcurrency(requested: number): number {
@@ -113,6 +142,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
   const planByRunId = new Map<string, RunPlanExecution>()
 
   input.runPlans.forEach((plan) => {
+    const totalTasks = input.imageTasks.filter((task) => task.runId === plan.pendingRunId).length
     planByRunId.set(plan.pendingRunId, plan)
     executions.set(plan.pendingRunId, {
       plan,
@@ -121,6 +151,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
         images: plan.pendingRun.images.map((image) => ({ ...image })),
       },
       completedTasks: 0,
+      totalTasks,
       started: false,
       settled: false,
     })
@@ -167,6 +198,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
       if (!execution || !plan || execution.settled) {
         continue
       }
+      const coveredSeqs = getTaskImageSeqs(task)
 
       emitImageTaskDebug({
         stage: 'local_queue_dequeued',
@@ -185,7 +217,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
 
       if (plan.signal?.aborted) {
         const completedAt = new Date().toISOString()
-        execution.run = patchRunImage(execution.run, task.seq, buildCancelledRunImagePatch({ completedAt }))
+        execution.run = patchRunImages(execution.run, coveredSeqs, buildCancelledRunImagePatch({ completedAt }))
         execution.completedTasks += 1
         input.hooks?.onTaskStateChange?.({
           taskId: task.taskId,
@@ -205,7 +237,22 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
           model: plan.modelId,
           ...getChannelDebugMeta(plan.channel),
         })
-        if (execution.completedTasks >= execution.run.images.length) {
+        coveredSeqs.forEach((seq) => {
+          const timing = getRunImageTiming(execution.run, seq)
+          input.hooks?.onTaskProgress?.({
+            taskId: task.taskId,
+            runId: task.runId,
+            seq,
+            status: 'failed',
+            queuedAt: timing.queuedAt,
+            startedAt: timing.startedAt,
+            threadState: 'settled',
+            error: '任务已取消',
+            errorCode: 'unknown',
+            completedAt,
+          })
+        })
+        if (execution.completedTasks >= execution.totalTasks) {
           settleRun(execution, input.hooks)
         }
         continue
@@ -239,7 +286,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
             side: plan.side,
             settings: {
               ...plan.settings,
-              imageCount: 1,
+              imageCount: coveredSeqs.length,
             },
             templatePrompt: plan.templatePrompt,
             finalPrompt: plan.finalPrompt,
@@ -261,7 +308,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
               input.hooks?.onTaskProgress?.({
                 taskId: task.taskId,
                 runId: task.runId,
-                seq: task.seq,
+                seq: progress.seq,
                 status: progress.status,
                 queuedAt: progress.queuedAt,
                 startedAt: progress.startedAt,
@@ -281,7 +328,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
                 completedAt: progress.status === 'pending' ? undefined : new Date().toISOString(),
               })
 
-              execution.run = patchRunImage(execution.run, task.seq, {
+              execution.run = patchRunImage(execution.run, progress.seq, {
                 status: progress.status,
                 queuedAt: progress.queuedAt,
                 startedAt: progress.startedAt,
@@ -305,7 +352,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
                 runId: task.runId,
                 batchId: task.batchId,
                 taskId: task.taskId,
-                seq: task.seq,
+                seq: progress.seq,
                 state: progress.status,
                 model: plan.modelId,
                 ...getChannelDebugMeta(plan.channel),
@@ -328,23 +375,26 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
             },
           })
 
-          const image = completedRun.images[0]
+          const completedImages = completedRun.images.filter((image) => coveredSeqs.includes(image.seq))
+          const taskState = resolveTaskStateFromImages(completedImages)
           if (plan.signal?.aborted) {
             const completedAt = new Date().toISOString()
-            execution.run = patchRunImage(execution.run, task.seq, buildCancelledRunImagePatch({ completedAt }))
+            execution.run = patchRunImages(execution.run, coveredSeqs, buildCancelledRunImagePatch({ completedAt }))
             execution.completedTasks += 1
-            const timing = getRunImageTiming(execution.run, task.seq)
-            input.hooks?.onTaskProgress?.({
-              taskId: task.taskId,
-              runId: task.runId,
-              seq: task.seq,
-              status: 'failed',
-              queuedAt: timing.queuedAt,
-              startedAt: timing.startedAt,
-              threadState: 'settled',
-              error: '任务已取消',
-              errorCode: 'unknown',
-              completedAt,
+            coveredSeqs.forEach((seq) => {
+              const timing = getRunImageTiming(execution.run, seq)
+              input.hooks?.onTaskProgress?.({
+                taskId: task.taskId,
+                runId: task.runId,
+                seq,
+                status: 'failed',
+                queuedAt: timing.queuedAt,
+                startedAt: timing.startedAt,
+                threadState: 'settled',
+                error: '任务已取消',
+                errorCode: 'unknown',
+                completedAt,
+              })
             })
             input.hooks?.onTaskStateChange?.({
               taskId: task.taskId,
@@ -355,24 +405,16 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
             })
             return
           }
-          if (image) {
-            execution.run = patchRunImage(execution.run, task.seq, {
-              ...image,
-              seq: task.seq,
-            })
-          }
+          completedImages.forEach((image) => {
+            execution.run = patchRunImage(execution.run, image.seq, image)
+          })
 
           execution.completedTasks += 1
           input.hooks?.onTaskStateChange?.({
             taskId: task.taskId,
             runId: task.runId,
             seq: task.seq,
-            state:
-              image?.status === 'success'
-                ? 'succeeded'
-                : image?.status === 'pending'
-                  ? 'polling'
-                  : 'failed',
+            state: taskState,
           })
           emitImageTaskDebug({
             stage: 'executor_task_state_emitted',
@@ -380,37 +422,34 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
             batchId: task.batchId,
             taskId: task.taskId,
             seq: task.seq,
-            nextState:
-              image?.status === 'success'
-                ? 'completed'
-                : image?.status === 'pending'
-                  ? 'polling'
-                  : 'failed',
+            nextState: taskState === 'succeeded' ? 'completed' : taskState,
             model: plan.modelId,
             ...getChannelDebugMeta(plan.channel),
             parsed: {
-              imageStatus: image?.status,
-              hasServerTaskId: Boolean(image?.serverTaskId),
-              hasRenderableResult: Boolean(image?.fileRef || image?.thumbRef || image?.fullRef || image?.refKey),
+              imageStatus: completedImages[0]?.status,
+              hasServerTaskId: completedImages.some((image) => Boolean(image.serverTaskId)),
+              hasRenderableResult: completedImages.some((image) => Boolean(image.fileRef || image.thumbRef || image.fullRef || image.refKey)),
             },
           })
         } catch (error) {
           if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') {
             const completedAt = new Date().toISOString()
-            execution.run = patchRunImage(execution.run, task.seq, buildCancelledRunImagePatch({ completedAt }))
+            execution.run = patchRunImages(execution.run, coveredSeqs, buildCancelledRunImagePatch({ completedAt }))
             execution.completedTasks += 1
-            const timing = getRunImageTiming(execution.run, task.seq)
-            input.hooks?.onTaskProgress?.({
-              taskId: task.taskId,
-              runId: task.runId,
-              seq: task.seq,
-              status: 'failed',
-              queuedAt: timing.queuedAt,
-              startedAt: timing.startedAt,
-              threadState: 'settled',
-              error: '任务已取消',
-              errorCode: 'unknown',
-              completedAt,
+            coveredSeqs.forEach((seq) => {
+              const timing = getRunImageTiming(execution.run, seq)
+              input.hooks?.onTaskProgress?.({
+                taskId: task.taskId,
+                runId: task.runId,
+                seq,
+                status: 'failed',
+                queuedAt: timing.queuedAt,
+                startedAt: timing.startedAt,
+                threadState: 'settled',
+                error: '任务已取消',
+                errorCode: 'unknown',
+                completedAt,
+              })
             })
             input.hooks?.onTaskStateChange?.({
               taskId: task.taskId,
@@ -434,24 +473,26 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
           }
           const message = error instanceof Error ? error.message : '图片生成失败'
           const completedAt = new Date().toISOString()
-          execution.run = patchRunImage(execution.run, task.seq, buildFailedRunImagePatch({
+          execution.run = patchRunImages(execution.run, coveredSeqs, buildFailedRunImagePatch({
             error: message,
             errorCode: 'unknown',
             completedAt,
           }))
           execution.completedTasks += 1
-          const timing = getRunImageTiming(execution.run, task.seq)
-          input.hooks?.onTaskProgress?.({
-            taskId: task.taskId,
-            runId: task.runId,
-            seq: task.seq,
-            status: 'failed',
-            queuedAt: timing.queuedAt,
-            startedAt: timing.startedAt,
-            threadState: 'settled',
-            error: message,
-            errorCode: 'unknown',
-            completedAt,
+          coveredSeqs.forEach((seq) => {
+            const timing = getRunImageTiming(execution.run, seq)
+            input.hooks?.onTaskProgress?.({
+              taskId: task.taskId,
+              runId: task.runId,
+              seq,
+              status: 'failed',
+              queuedAt: timing.queuedAt,
+              startedAt: timing.startedAt,
+              threadState: 'settled',
+              error: message,
+              errorCode: 'unknown',
+              completedAt,
+            })
           })
           input.hooks?.onTaskStateChange?.({
             taskId: task.taskId,
@@ -473,7 +514,7 @@ export async function executeImageTaskPool(input: ExecuteImageTaskPoolInput): Pr
           })
         } finally {
           logImageTaskLifecycleBoundary({ phase: 'finish', queueIndex: taskIndex, seq: task.seq, context: 'generate' })
-          if (execution.completedTasks >= execution.run.images.length) {
+          if (execution.completedTasks >= execution.totalTasks) {
             settleRun(execution, input.hooks)
           }
         }

@@ -36,10 +36,15 @@ export function findTaskForRunImage(input: {
 }): ImageTask | undefined {
   for (const taskId of input.run.taskIds ?? []) {
     const task = input.taskRegistry[taskId]
-    if (task?.runId === input.runId && task.seq === input.seq) {
+    if (!task?.runId || task.runId !== input.runId) {
+      continue
+    }
+    if (task.seq === input.seq || task.imageSeqs?.includes(input.seq)) {
       return task
     }
   }
 
-  return Object.values(input.taskRegistry).find((task) => task.runId === input.runId && task.seq === input.seq)
+  return Object.values(input.taskRegistry).find((task) =>
+    task.runId === input.runId && (task.seq === input.seq || task.imageSeqs?.includes(input.seq)),
+  )
 }

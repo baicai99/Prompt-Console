@@ -1,6 +1,6 @@
 import type { ApiChannel } from '../types/channel'
 import type { SettingPrimitive } from '../types/conversation'
-import type { ProviderSourceImage } from '../types/provider'
+import type { NormalizedResumeResult, ProviderSourceImage } from '../types/provider'
 import {
   generateImagesByProvider,
   resumeImageTaskByProvider,
@@ -61,10 +61,6 @@ export async function resumeImageTaskOnce(input: {
   taskId?: string
   taskMeta?: Record<string, string>
   signal?: AbortSignal
-}): Promise<
-  | { state: 'success'; src: string; serverTaskId?: string; serverTaskMeta?: Record<string, string> }
-  | { state: 'pending'; serverTaskId?: string; serverTaskMeta?: Record<string, string> }
-  | { state: 'failed'; error?: string; serverTaskId?: string; serverTaskMeta?: Record<string, string> }
-> {
+}): Promise<NormalizedResumeResult> {
   return resumeImageTaskByProvider(input)
 }

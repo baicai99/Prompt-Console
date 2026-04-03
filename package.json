@@ -7,7 +7,6 @@
     "dev": "vite",
     "dev:all": "node scripts/dev-all.mjs",
     "build": "tsc -b && node node_modules/vite/bin/vite.js build",
-    "jimeng:bff": "node scripts/jimeng-bff.mjs",
     "lint": "eslint .",
     "check:architecture": "node scripts/check-architecture-boundaries.mjs",
     "check:bundle": "node scripts/check-bundle.mjs",
